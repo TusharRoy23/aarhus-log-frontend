@@ -1,28 +1,52 @@
 import React, { useState } from 'react';
 import { Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Link } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
+import { useMutation } from '@tanstack/react-query';
 import { FontAwesome, MaterialIcons } from '@expo/vector-icons';
 import { Button, Checkbox, PasswordField, TextField } from '../../components/ui';
 import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
+import { authApi } from '../../lib/api/auth';
+import { getApiErrorMessage } from '../../lib/api/base_api';
+import { useAppDispatch } from '../../store/hooks';
+import { setPendingLogin } from '../../store/slices/pending-login-slice';
+import { useLoginMutation } from '../../hooks/useLoginMutation';
 
 const WIDE_BREAKPOINT = 768;
 
 export function LoginScreen() {
   const { width } = useWindowDimensions();
   const isWide = width >= WIDE_BREAKPOINT;
+  const router = useRouter();
+  const dispatch = useAppDispatch();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+
+  const loginMutation = useLoginMutation();
+
+  const lookupMutation = useMutation({
+    mutationFn: authApi.loginLookup,
+    onSuccess: (data) => {
+      const organizations = data?.organizations ?? [];
+      if (organizations.length === 1) {
+        loginMutation.mutate({ username: email, password, organization_uuid: organizations[0].uuid });
+      } else if (organizations.length > 1) {
+        dispatch(setPendingLogin({ username: email, password, organizations }));
+        router.push('/select-organization');
+      }
+    },
+  });
+
+  const isSubmitting = lookupMutation.isPending || loginMutation.isPending;
+  const submissionError = getApiErrorMessage(loginMutation.error ?? lookupMutation.error, '') || undefined;
 
   const handleSubmit = () => {
-    setSubmitting(true);
-    setTimeout(() => setSubmitting(false), 1500);
+    lookupMutation.mutate({ email, password });
   };
 
   return (
@@ -65,10 +89,12 @@ export function LoginScreen() {
                 <Text style={styles.rememberLabel}>Remember me for 30 days</Text>
               </View>
 
+              {submissionError ? <Text style={styles.errorText}>{submissionError}</Text> : null}
+
               <Button
                 label="Login"
                 icon={<MaterialIcons name="arrow-forward" size={20} color={Colors.onPrimary} />}
-                loading={submitting}
+                loading={isSubmitting}
                 onPress={handleSubmit}
               />
 
@@ -260,6 +286,10 @@ const styles = StyleSheet.create({
   form: {
     padding: Spacing.containerPaddingMobile,
     gap: Spacing.unit * 6,
+  },
+  errorText: {
+    ...Typography.bodyMd,
+    color: Colors.error,
   },
   formWide: {
     width: '50%',
