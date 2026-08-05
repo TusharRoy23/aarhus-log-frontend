@@ -3,3 +3,7 @@ export * from './PasswordField';
 export * from './Checkbox';
 export * from './Button';
 export * from './SocialButton';
+export * from './Avatar';
+export * from './SegmentedControl';
+export * from './ShiftCard';
+export * from './SideDrawer';
