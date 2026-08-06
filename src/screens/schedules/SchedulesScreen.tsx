@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { AppShell } from '../../components/layout/AppShell';
 import { Button, SegmentedControl } from '../../components/ui';
@@ -10,11 +11,8 @@ import { Radius } from '../../theme/radius';
 import { MyScheduleSection } from './MyScheduleSection';
 import { AllSchedulesSection } from './AllSchedulesSection';
 
-function notImplemented(label: string) {
-  Alert.alert(label, 'Coming soon.');
-}
-
 export function SchedulesScreen() {
+  const router = useRouter();
   const [view, setView] = useState<'mine' | 'all'>('mine');
 
   return (
@@ -28,7 +26,7 @@ export function SchedulesScreen() {
           <Button
             label="Create"
             icon={<MaterialIcons name="add" size={20} color={Colors.onPrimary} />}
-            onPress={() => notImplemented('Create Shift')}
+            onPress={() => router.push('/create-shift')}
             style={styles.createButton}
           />
         </View>

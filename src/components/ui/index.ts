@@ -7,3 +7,8 @@ export * from './Avatar';
 export * from './SegmentedControl';
 export * from './ShiftCard';
 export * from './SideDrawer';
+export * from './SelectField';
+export * from './DateTimeField';
+export * from './DateScroller';
+export * from './SearchField';
+export * from './ManageShiftCard';

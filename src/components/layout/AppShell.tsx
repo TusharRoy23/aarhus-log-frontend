@@ -18,13 +18,15 @@ const WIDE_BREAKPOINT = 768;
 
 export interface AppShellProps {
   children: React.ReactNode;
+  /** Hide the bottom tab bar — for modal-like screens (e.g. Create Shift) that aren't one of the main tabs. */
+  hideBottomNav?: boolean;
 }
 
 function notImplemented(label: string) {
   Alert.alert(label, 'Coming soon.');
 }
 
-export function AppShell({ children }: AppShellProps) {
+export function AppShell({ children, hideBottomNav }: AppShellProps) {
   const { width } = useWindowDimensions();
   const isWide = width >= WIDE_BREAKPOINT;
   const router = useRouter();
@@ -71,13 +73,20 @@ export function AppShell({ children }: AppShellProps) {
         <View style={styles.content}>
           {!isWide ? <TopBar onSwitchWorkspace={handleSwitchWorkspace} /> : null}
           <View style={styles.body}>{children}</View>
-          {!isWide ? <BottomNav active="schedule" onSelect={handleBottomNavSelect} /> : null}
+          {!isWide && !hideBottomNav ? <BottomNav active="schedule" onSelect={handleBottomNavSelect} /> : null}
         </View>
       </View>
 
       <SideDrawer visible={menuOpen} onClose={() => setMenuOpen(false)}>
         <DrawerHeader title="Menu" onClose={() => setMenuOpen(false)} />
-        <DrawerLink icon="add-circle" label="Create Shift" onPress={() => notImplemented('Create Shift')} />
+        <DrawerLink
+          icon="calendar-today"
+          label="Manage Shifts"
+          onPress={() => {
+            setMenuOpen(false);
+            router.push('/shifts');
+          }}
+        />
         <DrawerLink icon="person-add" label="Invite Employees" onPress={() => notImplemented('Invite Employees')} />
         <DrawerLink icon="settings" label="Team Settings" onPress={() => notImplemented('Team Settings')} />
         <DrawerLink icon="assessment" label="Reports" onPress={() => notImplemented('Reports')} />

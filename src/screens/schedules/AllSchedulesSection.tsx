@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { ShiftCard } from '../../components/ui';
+import { DateScroller, ShiftCard } from '../../components/ui';
 import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
@@ -55,21 +55,7 @@ export function AllSchedulesSection() {
 
   return (
     <View style={styles.container}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dateRow}>
-        {DATES.map((date) => {
-          const isActive = date.day === selectedDay;
-          return (
-            <Pressable
-              key={date.day}
-              style={[styles.dateCard, isActive && styles.dateCardActive]}
-              onPress={() => setSelectedDay(date.day)}
-            >
-              <Text style={[styles.dateLabel, isActive && styles.dateLabelActive]}>{date.label}</Text>
-              <Text style={[styles.dateNumber, isActive && styles.dateNumberActive]}>{date.day}</Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+      <DateScroller dates={DATES} selectedDay={selectedDay} onSelect={setSelectedDay} />
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
         <Pressable style={styles.filterChip} onPress={() => notImplemented('Filter by role')}>
@@ -93,40 +79,6 @@ export function AllSchedulesSection() {
 const styles = StyleSheet.create({
   container: {
     gap: Spacing.sectionGap,
-  },
-  dateRow: {
-    gap: Spacing.gutter,
-    paddingVertical: Spacing.unit,
-  },
-  dateCard: {
-    width: 72,
-    height: 90,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.outlineVariant,
-    backgroundColor: Colors.surfaceContainerLowest,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.unit,
-  },
-  dateCardActive: {
-    backgroundColor: Colors.primaryContainer,
-    borderColor: Colors.primaryContainer,
-  },
-  dateLabel: {
-    ...Typography.labelSm,
-    color: Colors.onSurfaceVariant,
-    textTransform: 'uppercase',
-  },
-  dateLabelActive: {
-    color: Colors.onPrimaryContainer,
-  },
-  dateNumber: {
-    ...Typography.titleMd,
-    color: Colors.onSurface,
-  },
-  dateNumberActive: {
-    color: Colors.onPrimaryContainer,
   },
   filterRow: {
     gap: Spacing.unit * 3,

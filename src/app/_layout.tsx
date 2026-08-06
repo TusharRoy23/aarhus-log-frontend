@@ -39,7 +39,9 @@ export default function RootLayout() {
       <PersistGate loading={null} persistor={persistor}>
         <QueryClientProvider client={queryClient}>
           <SafeAreaProvider>
-            <Stack screenOptions={{ headerShown: false }} />
+            <Stack screenOptions={{ headerShown: false }}>
+              <Stack.Screen name="create-shift" options={{ presentation: 'modal' }} />
+            </Stack>
             <StatusBar style="dark" />
           </SafeAreaProvider>
         </QueryClientProvider>
