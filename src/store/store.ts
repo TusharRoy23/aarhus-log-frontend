@@ -12,10 +12,12 @@ import {
 } from 'redux-persist';
 
 import pendingLoginReducer from './slices/pending-login-slice';
+import pendingSignupReducer from './slices/pending-signup-slice';
 import authReducer from './slices/auth-slice';
 
 const rootReducer = combineReducers({
   pendingLogin: pendingLoginReducer,
+  pendingSignup: pendingSignupReducer,
   auth: authReducer,
 });
 
@@ -23,10 +25,10 @@ const persistedReducer = persistReducer(
   {
     key: 'root',
     storage: AsyncStorage,
-    // Nothing whitelisted yet: `pendingLogin` carries a raw password and must
-    // never hit disk; `auth` (user/organization) is safe to persist but
-    // currently resets on every app restart until that's deliberately
-    // decided — add 'auth' here to make login survive a restart.
+    // Nothing whitelisted yet: `pendingLogin`/`pendingSignup` carry a raw
+    // password and must never hit disk; `auth` (user/organization) is safe
+    // to persist but currently resets on every app restart until that's
+    // deliberately decided — add 'auth' here to make login survive a restart.
     whitelist: [],
   },
   rootReducer,

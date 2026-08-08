@@ -9,7 +9,8 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Link } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
+import { useMutation } from '@tanstack/react-query';
 import { LinearGradient } from 'expo-linear-gradient';
 import { FontAwesome, MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import { Button, Checkbox, PasswordField, SocialButton, TextField } from '../../components/ui';
@@ -17,12 +18,18 @@ import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
+import { authApi } from '../../lib/api/auth';
+import { getApiErrorMessage } from '../../lib/api/base_api';
+import { useAppDispatch } from '../../store/hooks';
+import { setPendingSignup } from '../../store/slices/pending-signup-slice';
 
 const WIDE_BREAKPOINT = 768;
 
 export function SignUpScreen() {
   const { width } = useWindowDimensions();
   const isWide = width >= WIDE_BREAKPOINT;
+  const router = useRouter();
+  const dispatch = useAppDispatch();
 
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -31,11 +38,42 @@ export function SignUpScreen() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [agreedToTerms, setAgreedToTerms] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [validationError, setValidationError] = useState<string | undefined>();
+
+  const registerMutation = useMutation({
+    mutationFn: authApi.register,
+    onSuccess: (_data, payload) => {
+      dispatch(setPendingSignup(payload));
+      router.push('/verify-otp');
+    },
+  });
+
+  const submissionError =
+    validationError ?? (getApiErrorMessage(registerMutation.error, '') || undefined);
 
   const handleSubmit = () => {
-    setSubmitting(true);
-    setTimeout(() => setSubmitting(false), 1500);
+    if (!firstName || !lastName || !orgName || !email || !password) {
+      setValidationError('Please fill in all fields.');
+      return;
+    }
+    if (password !== confirmPassword) {
+      setValidationError('Passwords do not match.');
+      return;
+    }
+    if (!agreedToTerms) {
+      setValidationError('Please agree to the Terms of Service and Privacy Policy.');
+      return;
+    }
+    setValidationError(undefined);
+
+    registerMutation.mutate({
+      email,
+      password,
+      confirm_password: confirmPassword,
+      first_name: firstName,
+      last_name: lastName,
+      org_name: orgName,
+    });
   };
 
   return (
@@ -121,10 +159,12 @@ export function SignUpScreen() {
                 </Text>
               </View>
 
+              {submissionError ? <Text style={styles.errorText}>{submissionError}</Text> : null}
+
               <Button
                 label="Sign Up"
                 icon={<MaterialIcons name="arrow-forward" size={20} color={Colors.onPrimary} />}
-                loading={submitting}
+                loading={registerMutation.isPending}
                 onPress={handleSubmit}
                 style={styles.submitButton}
               />
@@ -297,6 +337,10 @@ const styles = StyleSheet.create({
   },
   rowItem: {
     flex: 1,
+  },
+  errorText: {
+    ...Typography.bodyMd,
+    color: Colors.error,
   },
   termsRow: {
     flexDirection: 'row',

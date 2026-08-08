@@ -6,12 +6,20 @@ export type RegisterPayload = {
     confirm_password: string;
     first_name: string;
     last_name: string;
-    organization: string;
+    org_name: string;
 };
 
-type registerMsgResponse = {
-    status: string;
-    msg: string;
+export type RegisterResponse = {
+    message: string;
+};
+
+export type VerifyOtpPayload = {
+    email: string;
+    otp: string;
+};
+
+export type VerifyOtpResponse = {
+    message: string;
 };
 
 export type LoginLookupPayload = {
@@ -49,8 +57,12 @@ export type LoginResponse = {
 }
 
 export const authApi = {
-    register: async (payload: RegisterPayload) => {
-        const response = await baseApi.post<registerMsgResponse>(apiPath('/user/register/'), payload)
+    register: async (payload: RegisterPayload): Promise<RegisterResponse> => {
+        const response = await baseApi.post<RegisterResponse>(apiPath('/user/signup/'), payload)
+        return response.data;
+    },
+    verifyOtp: async (payload: VerifyOtpPayload): Promise<VerifyOtpResponse> => {
+        const response = await baseApi.post<VerifyOtpResponse>(apiPath('/user/verify-otp/'), payload);
         return response.data;
     },
     loginLookup: async (payload: LoginLookupPayload): Promise<LoginLookupResponse> => {
