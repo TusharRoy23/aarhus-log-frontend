@@ -25,6 +25,7 @@
     "react-native-screens": "~4.26.0",
     "react-native-web": "^0.21.2",
     "react-redux": "^9.3.0",
+    "redux-devtools-expo-dev-plugin": "^2.0.0",
     "redux-persist": "^6.0.0"
   },
   "devDependencies": {

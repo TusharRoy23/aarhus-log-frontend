@@ -10,6 +10,7 @@ import {
   REGISTER,
   REHYDRATE,
 } from 'redux-persist';
+import devToolsEnhancer from "redux-devtools-expo-dev-plugin";
 
 import pendingLoginReducer from './slices/pending-login-slice';
 import pendingSignupReducer from './slices/pending-signup-slice';
@@ -42,6 +43,8 @@ export const store = configureStore({
         ignoredActions: [FLUSH, PAUSE, PERSIST, PURGE, REGISTER, REHYDRATE],
       },
     }),
+  enhancers: (getDefaultEnhancers) =>
+    getDefaultEnhancers().concat(devToolsEnhancer()),
 });
 
 export const persistor = persistStore(store);
