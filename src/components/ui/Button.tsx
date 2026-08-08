@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, PressableProps, StyleSheet, Text, ViewSty
 import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Radius } from '../../theme/radius';
+import { Spacing } from '../../theme/spacing';
 
 export interface ButtonProps extends Omit<PressableProps, 'style'> {
   label: string;
@@ -58,6 +59,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     paddingVertical: 16,
+    paddingHorizontal: Spacing.gutter,
     borderRadius: Radius.DEFAULT,
   },
   primary: {

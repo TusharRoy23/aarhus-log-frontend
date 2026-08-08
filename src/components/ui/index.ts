@@ -12,3 +12,4 @@ export * from './DateTimeField';
 export * from './DateScroller';
 export * from './SearchField';
 export * from './ManageShiftCard';
+export * from './OtpInput';

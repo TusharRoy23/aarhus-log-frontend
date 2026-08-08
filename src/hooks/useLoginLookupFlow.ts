@@ -5,11 +5,12 @@ import { useAppDispatch } from '../store/hooks';
 import { setPendingLogin } from '../store/slices/pending-login-slice';
 import { useLoginMutation } from './useLoginMutation';
 
-// Shared by LoginScreen and VerifyOtpScreen (post-signup auto-login) — both
-// need to go from {email, password} to a finished session the same way:
+// Used by LoginScreen to go from {email, password} to a finished session:
 // look up which organizations the account belongs to, then either log
 // straight in (exactly one org) or hand off to the organization-selector
 // screen (more than one). See useLoginMutation for the login step itself.
+// (VerifyOtpScreen deliberately does NOT use this — after OTP verification
+// it sends the user to sign in manually rather than auto-logging in.)
 export function useLoginLookupFlow() {
   const dispatch = useAppDispatch();
   const router = useRouter();

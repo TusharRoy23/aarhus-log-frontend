@@ -3,7 +3,7 @@ import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text
 import { useRouter } from 'expo-router';
 import { useMutation } from '@tanstack/react-query';
 import { MaterialIcons } from '@expo/vector-icons';
-import { Button, TextField } from '../../components/ui';
+import { Button, OtpInput } from '../../components/ui';
 import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
@@ -12,7 +12,6 @@ import { authApi } from '../../lib/api/auth';
 import { getApiErrorMessage } from '../../lib/api/base_api';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
 import { clearPendingSignup } from '../../store/slices/pending-signup-slice';
-import { useLoginLookupFlow } from '../../hooks/useLoginLookupFlow';
 
 export function VerifyOtpScreen() {
   const router = useRouter();
@@ -27,14 +26,10 @@ export function VerifyOtpScreen() {
   const [otp, setOtp] = useState('');
   const [resent, setResent] = useState(false);
 
-  const loginFlow = useLoginLookupFlow();
-
   const verifyMutation = useMutation({
     mutationFn: authApi.verifyOtp,
     onSuccess: () => {
-      if (!pending) return;
       dispatch(clearPendingSignup());
-      loginFlow.submit({ email: pending.email, password: pending.password });
     },
   });
 
@@ -65,8 +60,11 @@ export function VerifyOtpScreen() {
     resendMutation.mutate(pending);
   };
 
-  const isSubmitting = verifyMutation.isPending || loginFlow.isPending;
-  const errorMessage = getApiErrorMessage(verifyMutation.error ?? resendMutation.error ?? loginFlow.error, '') || undefined;
+  const handleGoToLogin = () => {
+    router.replace('/');
+  };
+
+  const errorMessage = getApiErrorMessage(verifyMutation.error ?? resendMutation.error, '') || undefined;
 
   return (
     <View style={styles.safeArea}>
@@ -78,41 +76,60 @@ export function VerifyOtpScreen() {
               <Text style={styles.logoText}>Workspace</Text>
             </View>
 
-            <View style={styles.header}>
-              <Text style={styles.title}>Verify your email</Text>
-              <Text style={styles.subtitle}>
-                We sent a 6-digit code to <Text style={styles.emailText}>{pending.email}</Text>.
-              </Text>
-            </View>
+            {verifyMutation.isSuccess ? (
+              <View style={styles.successGroup}>
+                <View style={styles.successIcon}>
+                  <MaterialIcons name="check-circle" size={40} color={Colors.primary} />
+                </View>
 
-            <TextField
-              label="Verification Code"
-              placeholder="123456"
-              value={otp}
-              onChangeText={(value) => setOtp(value.replace(/[^0-9]/g, '').slice(0, 6))}
-              keyboardType="number-pad"
-              maxLength={6}
-              icon={<MaterialIcons name="lock-outline" size={20} color={Colors.outline} />}
-              style={styles.otpInput}
-            />
+                <View style={[styles.header, styles.centerAlign]}>
+                  <Text style={[styles.title, styles.centerText]}>Email verified!</Text>
+                  <Text style={[styles.subtitle, styles.centerText]}>
+                    Your account has been created successfully. Please sign in to continue.
+                  </Text>
+                </View>
 
-            {resent ? <Text style={styles.successText}>A new code has been sent.</Text> : null}
-            {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+                <Button
+                  label="Sign In"
+                  icon={
+                    <MaterialIcons name="arrow-forward" size={20} color={Colors.onPrimary} />
+                  }
+                  onPress={handleGoToLogin}
+                />
+              </View>
+            ) : (
+              <>
+                <View style={styles.header}>
+                  <Text style={styles.title}>Verify your email</Text>
+                  <Text style={styles.subtitle}>
+                    We sent a 6-digit code to <Text style={styles.emailText}>{pending.email}</Text>.
+                  </Text>
+                </View>
 
-            <Button
-              label="Verify"
-              icon={<MaterialIcons name="arrow-forward" size={20} color={Colors.onPrimary} />}
-              loading={isSubmitting}
-              disabled={otp.length !== 6}
-              onPress={handleVerify}
-            />
+                <View style={styles.otpGroup}>
+                  <Text style={styles.otpLabel}>VERIFICATION CODE</Text>
+                  <OtpInput value={otp} onChange={setOtp} autoFocus />
+                </View>
 
-            <View style={styles.footerRow}>
-              <Text style={styles.subtitle}>Didn't get a code? </Text>
-              <Pressable onPress={handleResend} disabled={resendMutation.isPending} hitSlop={8}>
-                <Text style={styles.link}>{resendMutation.isPending ? 'Sending…' : 'Resend Code'}</Text>
-              </Pressable>
-            </View>
+                {resent ? <Text style={styles.successText}>A new code has been sent.</Text> : null}
+                {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+
+                <Button
+                  label="Verify"
+                  icon={<MaterialIcons name="arrow-forward" size={20} color={Colors.onPrimary} />}
+                  loading={verifyMutation.isPending}
+                  disabled={otp.length !== 6}
+                  onPress={handleVerify}
+                />
+
+                <View style={styles.footerRow}>
+                  <Text style={styles.subtitle}>Didn't get a code? </Text>
+                  <Pressable onPress={handleResend} disabled={resendMutation.isPending} hitSlop={8}>
+                    <Text style={styles.link}>{resendMutation.isPending ? 'Sending…' : 'Resend Code'}</Text>
+                  </Pressable>
+                </View>
+              </>
+            )}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -171,8 +188,31 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_600SemiBold',
     color: Colors.onSurface,
   },
-  otpInput: {
-    letterSpacing: 8,
+  successGroup: {
+    alignItems: 'center',
+    gap: Spacing.unit * 6,
+  },
+  centerAlign: {
+    alignItems: 'center',
+  },
+  centerText: {
+    textAlign: 'center',
+  },
+  successIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primaryFixed,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  otpGroup: {
+    gap: Spacing.unit * 2,
+  },
+  otpLabel: {
+    ...Typography.labelSm,
+    color: Colors.onSurfaceVariant,
+    textAlign: 'center',
   },
   successText: {
     ...Typography.bodyMd,
