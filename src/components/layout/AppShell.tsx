@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { usePathname, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { TopBar } from './TopBar';
 import { SideNav } from './SideNav';
@@ -15,6 +15,15 @@ import { clearAuth } from '../../store/slices/auth-slice';
 import { tokenStore } from '../../lib/api/base_api';
 
 const WIDE_BREAKPOINT = 768;
+
+// Which bottom-nav section a route belongs to. Screens reached via the Menu
+// drawer (e.g. Manage Shifts) still highlight "Menu", not "Schedule" — the
+// active tab reflects the section you're in, not literally which route is
+// mounted. Add an entry here whenever a new screen is wired up.
+const NAV_KEY_BY_ROUTE: Record<string, BottomNavKey> = {
+  '/schedules': 'schedule',
+  '/shifts': 'menu',
+};
 
 export interface AppShellProps {
   children: React.ReactNode;
@@ -30,6 +39,8 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
   const { width } = useWindowDimensions();
   const isWide = width >= WIDE_BREAKPOINT;
   const router = useRouter();
+  const pathname = usePathname();
+  const activeNavKey = NAV_KEY_BY_ROUTE[pathname] ?? 'schedule';
   const dispatch = useAppDispatch();
   const user = useAppSelector((state) => state.auth.user);
   const organization = useAppSelector((state) => state.auth.organization);
@@ -53,6 +64,10 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
     if (key === 'menu') setMenuOpen(true);
     else if (key === 'profile') setProfileOpen(true);
     else if (key === 'notifications') notImplemented('Notifications');
+    else {
+      const route = Object.entries(NAV_KEY_BY_ROUTE).find(([, navKey]) => navKey === key)?.[0];
+      if (route) router.back();
+    }
     // 'schedule' is the only real screen so far — nothing to do.
   };
 
@@ -73,7 +88,7 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
         <View style={styles.content}>
           {!isWide ? <TopBar onSwitchWorkspace={handleSwitchWorkspace} /> : null}
           <View style={styles.body}>{children}</View>
-          {!isWide && !hideBottomNav ? <BottomNav active="schedule" onSelect={handleBottomNavSelect} /> : null}
+          {!isWide && !hideBottomNav ? <BottomNav active={activeNavKey} onSelect={handleBottomNavSelect} /> : null}
         </View>
       </View>
 
