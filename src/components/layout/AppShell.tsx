@@ -23,6 +23,7 @@ const WIDE_BREAKPOINT = 768;
 const NAV_KEY_BY_ROUTE: Record<string, BottomNavKey> = {
   '/schedules': 'schedule',
   '/shifts': 'menu',
+  '/team': 'menu',
 };
 
 export interface AppShellProps {
@@ -102,7 +103,14 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
             router.push('/shifts');
           }}
         />
-        <DrawerLink icon="person-add" label="Invite Employees" onPress={() => notImplemented('Invite Employees')} />
+        <DrawerLink
+          icon="person-add"
+          label="Employees"
+          onPress={() => {
+            setMenuOpen(false);
+            router.push('/team');
+          }}
+        />
         <DrawerLink icon="settings" label="Team Settings" onPress={() => notImplemented('Team Settings')} />
         <DrawerLink icon="assessment" label="Reports" onPress={() => notImplemented('Reports')} />
       </SideDrawer>

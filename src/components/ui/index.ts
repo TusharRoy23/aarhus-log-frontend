@@ -13,3 +13,4 @@ export * from './DateScroller';
 export * from './SearchField';
 export * from './ManageShiftCard';
 export * from './OtpInput';
+export * from './EmployeeCard';

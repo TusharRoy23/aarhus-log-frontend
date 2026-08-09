@@ -7,3 +7,13 @@ export const StatusColors: Record<ShiftStatus, { background: string; text: strin
   confirmed: { background: '#ecfdf5', text: '#047857', strip: '#10b981' },
   pending: { background: '#fffbeb', text: '#b45309', strip: '#f59e0b' },
 };
+
+export type EmployeeStatus = 'active' | 'pending-invite';
+
+// Separate from ShiftStatus — "Pending Invite" (an employee record) is a
+// different concept from a "Pending" shift, even though both read as
+// amber/warm in the UI.
+export const EmployeeStatusColors: Record<EmployeeStatus, { background: string; text: string; strip: string }> = {
+  active: { background: '#ecfdf5', text: '#047857', strip: '#10b981' },
+  'pending-invite': { background: '#fef2f2', text: '#b91c1c', strip: '#f59e0b' },
+};

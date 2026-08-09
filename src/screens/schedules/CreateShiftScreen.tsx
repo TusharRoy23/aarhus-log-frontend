@@ -36,9 +36,10 @@ export function CreateShiftScreen() {
   const handleClear = () => setForm(initialFormState);
 
   const handleSave = () => {
-    Alert.alert('Shift saved', "This is a UI preview — creating shifts isn't connected to a backend yet.", [
-      { text: 'OK', onPress: () => router.back() },
-    ]);
+    // Alert's button onPress never fires on web (react-native-web's Alert.alert
+    // is a no-op there) — don't gate navigation behind it.
+    Alert.alert('Shift saved', "This is a UI preview — creating shifts isn't connected to a backend yet.");
+    router.back();
   };
 
   return (
