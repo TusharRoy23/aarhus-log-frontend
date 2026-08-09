@@ -42,6 +42,7 @@ export default function RootLayout() {
             <Stack screenOptions={{ headerShown: false }}>
               <Stack.Screen name="create-shift" options={{ presentation: 'modal' }} />
               <Stack.Screen name="employee-form" options={{ presentation: 'modal' }} />
+              <Stack.Screen name="designation-form" options={{ presentation: 'modal' }} />
             </Stack>
             <StatusBar style="dark" />
           </SafeAreaProvider>

@@ -24,6 +24,7 @@ const NAV_KEY_BY_ROUTE: Record<string, BottomNavKey> = {
   '/schedules': 'schedule',
   '/shifts': 'menu',
   '/team': 'menu',
+  '/designations': 'menu',
 };
 
 export interface AppShellProps {
@@ -109,6 +110,14 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
           onPress={() => {
             setMenuOpen(false);
             router.push('/team');
+          }}
+        />
+        <DrawerLink
+          icon="badge"
+          label="Designations"
+          onPress={() => {
+            setMenuOpen(false);
+            router.push('/designations');
           }}
         />
         <DrawerLink icon="settings" label="Team Settings" onPress={() => notImplemented('Team Settings')} />
