@@ -12,7 +12,7 @@ import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
 import { clearAuth } from '../../store/slices/auth-slice';
-import { tokenStore } from '../../lib/api/base_api';
+import { tokenStore } from '../../lib/api/utils';
 
 const WIDE_BREAKPOINT = 768;
 

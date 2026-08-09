@@ -1,4 +1,5 @@
-import baseApi, { apiPath } from './base_api';
+import baseApi from './base_api';
+import { apiPath } from './utils';
 
 export type RegisterPayload = {
     email: string;

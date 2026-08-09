@@ -1,7 +1,7 @@
 import { useMutation } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { authApi } from '../lib/api/auth';
-import { tokenStore } from '../lib/api/base_api';
+import { tokenStore } from '../lib/api/utils';
 import { useAppDispatch } from '../store/hooks';
 import { clearPendingLogin } from '../store/slices/pending-login-slice';
 import { setAuth } from '../store/slices/auth-slice';
