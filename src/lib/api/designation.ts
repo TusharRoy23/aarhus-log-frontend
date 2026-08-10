@@ -34,8 +34,8 @@ export const designationApi = {
         const response = await baseApi.post<Designation>(apiPath(DESIGNATIONS_PATH), payload);
         return response.data;
     },
-    // No confirmed delete endpoint — `is_active` on the entity implies
-    // soft-delete via update, so "deactivate" goes through here too.
+    //! No confirmed delete endpoint — `is_active` on the entity implies
+    //! soft-delete via update, so "deactivate" goes through here too.
     update: async (uuid: string, payload: UpdateDesignationPayload): Promise<Designation> => {
         const response = await baseApi.put<Designation>(apiPath(`${DESIGNATIONS_PATH}${uuid}/`), payload);
         return response.data;

@@ -28,11 +28,11 @@ const persistedReducer = persistReducer(
   {
     key: 'root',
     storage: AsyncStorage,
-    // Nothing whitelisted yet: `pendingLogin`/`pendingSignup` carry a raw
-    // password and must never hit disk; `auth` (user/organization) is safe
-    // to persist but currently resets on every app restart until that's
-    // deliberately decided — add 'auth' here to make login survive a restart.
-    whitelist: [],
+    // `pendingLogin`/`pendingSignup` carry a raw password and must never hit
+    // disk. `auth` (user/organization) is whitelisted so identity survives
+    // an app restart — the access/refresh tokens themselves stay out of
+    // Redux entirely and live in `tokenStore` (secure-store backed).
+    whitelist: ['auth'],
   },
   rootReducer,
 );
