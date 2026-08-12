@@ -13,5 +13,6 @@ export * from './DateScroller';
 export * from './SearchField';
 export * from './ManageShiftCard';
 export * from './OtpInput';
+export * from './ActionMenu';
 export * from './EmployeeCard';
 export * from './DesignationCard';

@@ -1,51 +1,96 @@
 import { useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MaterialIcons } from '@expo/vector-icons';
 import { AppShell } from '../../components/layout/AppShell';
-import { Button, TextField } from '../../components/ui';
+import { Button, Checkbox, DateTimeField, SelectField, TextField } from '../../components/ui';
 import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
-import { useAppDispatch, useAppSelector } from '../../store/hooks';
-import { addEmployee, updateEmployee } from '../../store/slices/employees-slice';
+import {
+  employeeApi,
+  type CreateEmployeePayload,
+  type EmployeeListResponse,
+  type UpdateEmployeePayload,
+} from '../../lib/api/employee';
+import { designationApi } from '../../lib/api/designation';
+import { getApiErrorMessage } from '../../lib/api/base_api';
 
 export function EmployeeFormScreen() {
   const router = useRouter();
-  const dispatch = useAppDispatch();
+  const queryClient = useQueryClient();
   const { id } = useLocalSearchParams<{ id?: string }>();
-  const existing = useAppSelector((state) => state.employees.items.find((employee) => employee.id === id));
+
+  // The list screen already populates the ['employees'] cache — read from it
+  // rather than issuing a second request for the one being edited.
+  const { data } = useQuery({ queryKey: ['employees'], queryFn: employeeApi.list });
+  const existing = data?.results.find((employee) => employee.uuid === id);
   const isEditing = Boolean(existing);
 
-  const [firstName, setFirstName] = useState(existing?.firstName ?? '');
-  const [lastName, setLastName] = useState(existing?.lastName ?? '');
+  const { data: designationData } = useQuery({ queryKey: ['designations'], queryFn: designationApi.list });
+  const designationOptions = (designationData?.results ?? [])
+    .filter((designation) => designation.is_active)
+    .map((designation) => ({ label: designation.name, value: designation.uuid }));
+
+  const [firstName, setFirstName] = useState(existing?.first_name ?? '');
+  const [lastName, setLastName] = useState(existing?.last_name ?? '');
   const [email, setEmail] = useState(existing?.email ?? '');
-  const [role, setRole] = useState(existing?.role ?? '');
-  const [department, setDepartment] = useState(existing?.department ?? '');
-  const [error, setError] = useState<string | undefined>();
+  const [designationUuid, setDesignationUuid] = useState(existing?.designation.uuid ?? '');
+  const [startDate, setStartDate] = useState(existing?.start_date ?? '');
+  const [endDate, setEndDate] = useState(existing?.end_date ?? '');
+  const [isActive, setIsActive] = useState(existing?.is_active ?? true);
+  const [validationError, setValidationError] = useState<string | undefined>();
+
+  const createMutation = useMutation({
+    mutationFn: employeeApi.create,
+    onSuccess: (created) => {
+      // The API already hands back the full created record — prepend it to
+      // the cached list directly instead of refetching.
+      queryClient.setQueryData<EmployeeListResponse>(['employees'], (old) =>
+        old ? { results: [created, ...old.results], count: old.count + 1 } : old,
+      );
+      router.back();
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: (payload: UpdateEmployeePayload) => employeeApi.update(existing!.uuid, payload),
+    onSuccess: (updated) => {
+      // Same idea: swap just this record in place using the API's response.
+      queryClient.setQueryData<EmployeeListResponse>(['employees'], (old) =>
+        old ? { ...old, results: old.results.map((e) => (e.uuid === updated.uuid ? updated : e)) } : old,
+      );
+      router.back();
+    },
+  });
+
+  const isSubmitting = createMutation.isPending || updateMutation.isPending;
+  const errorMessage =
+    validationError ?? (getApiErrorMessage(createMutation.error ?? updateMutation.error, '') || undefined);
 
   const handleSave = () => {
-    if (!firstName || !lastName || !email || !role) {
-      setError('Please fill in first name, last name, email, and role.');
+    if (!firstName || !lastName || !email || !designationUuid || !startDate) {
+      setValidationError('Please fill in first name, last name, email, role, and start date.');
       return;
     }
-    setError(undefined);
+    setValidationError(undefined);
 
-    const payload = { firstName, lastName, email, role, department: department || undefined };
+    const payload: CreateEmployeePayload = {
+      email,
+      first_name: firstName,
+      last_name: lastName,
+      designation_uuid: designationUuid,
+      start_date: startDate,
+      ...(endDate ? { end_date: endDate } : {}),
+    };
 
-    // Alert's button onPress never fires on web (react-native-web's
-    // Alert.alert is a no-op there) — don't gate navigation behind it; the
-    // updated/added employee showing in the list on return is confirmation
-    // enough, the alert is a supplementary native-only nicety.
-    if (isEditing && existing) {
-      dispatch(updateEmployee({ id: existing.id, ...payload }));
-      Alert.alert('Employee updated', `${firstName} ${lastName}'s details have been updated.`);
+    if (isEditing) {
+      updateMutation.mutate({ ...payload, is_active: isActive });
     } else {
-      dispatch(addEmployee(payload));
-      Alert.alert('Employee added', `${firstName} ${lastName} has been added and invited to join.`);
+      createMutation.mutate(payload);
     }
-    router.back();
   };
 
   return (
@@ -98,31 +143,43 @@ export function EmployeeFormScreen() {
                 onChangeText={setEmail}
                 keyboardType="email-address"
                 autoCapitalize="none"
+                editable={!isEditing}
+                style={isEditing ? styles.disabledInput : undefined}
                 icon={<MaterialIcons name="email" size={20} color={Colors.outline} />}
               />
 
-              <TextField
+              <SelectField
                 label="Role / Title"
-                placeholder="e.g. Security Lead"
-                value={role}
-                onChangeText={setRole}
+                placeholder="Select a role"
+                value={designationUuid}
+                onChange={setDesignationUuid}
+                options={designationOptions}
                 icon={<MaterialIcons name="badge" size={20} color={Colors.outline} />}
               />
 
-              <TextField
-                label="Department (Optional)"
-                placeholder="e.g. Facilities"
-                value={department}
-                onChangeText={setDepartment}
-                icon={<MaterialIcons name="business" size={20} color={Colors.outline} />}
-              />
+              <View style={styles.row}>
+                <View style={styles.rowItem}>
+                  <DateTimeField label="Start Date" mode="date" value={startDate} onChange={setStartDate} />
+                </View>
+                <View style={styles.rowItem}>
+                  <DateTimeField label="End Date (Optional)" mode="date" value={endDate} onChange={setEndDate} />
+                </View>
+              </View>
 
-              {error ? <Text style={styles.errorText}>{error}</Text> : null}
+              {isEditing ? (
+                <View style={styles.activeRow}>
+                  <Checkbox checked={isActive} onChange={setIsActive} />
+                  <Text style={styles.activeLabel}>Active</Text>
+                </View>
+              ) : null}
+
+              {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
             </View>
 
             <Button
-              label={isEditing ? 'Save Changes' : 'Add & Invite'}
+              label={isEditing ? 'Save Changes' : 'Add'}
               icon={<MaterialIcons name={isEditing ? 'save' : 'person-add'} size={18} color={Colors.onPrimary} />}
+              loading={isSubmitting}
               onPress={handleSave}
             />
           </View>
@@ -190,8 +247,21 @@ const styles = StyleSheet.create({
   rowItem: {
     flex: 1,
   },
+  activeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.unit * 3,
+  },
+  activeLabel: {
+    ...Typography.bodyMd,
+    color: Colors.onSurfaceVariant,
+  },
   errorText: {
     ...Typography.bodyMd,
     color: Colors.error,
+  },
+  disabledInput: {
+    backgroundColor: Colors.surfaceContainerLow,
+    color: Colors.onSurfaceVariant,
   },
 });

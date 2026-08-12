@@ -1,13 +1,15 @@
 import { useMemo, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { MaterialIcons } from '@expo/vector-icons';
 import { AppShell } from '../../components/layout/AppShell';
 import { Button, EmployeeCard, SearchField } from '../../components/ui';
 import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
-import { useAppSelector } from '../../store/hooks';
+import { employeeApi } from '../../lib/api/employee';
+import { getApiErrorMessage } from '../../lib/api/base_api';
 
 function notImplemented(label: string) {
   Alert.alert(label, 'Coming soon.');
@@ -15,24 +17,35 @@ function notImplemented(label: string) {
 
 export function TeamDirectoryScreen() {
   const router = useRouter();
-  const employees = useAppSelector((state) => state.employees.items);
   const [query, setQuery] = useState('');
+
+  const { data, isPending, isError, error } = useQuery({
+    queryKey: ['employees'],
+    queryFn: employeeApi.list,
+  });
+  const inviteMutation = useMutation({
+    mutationFn: employeeApi.invite,
+    onSuccess: (response) => {
+      Alert.alert('Invite sent', response?.message ?? 'Invite sent successfully.');
+    },
+    onError: (error) => {
+      Alert.alert('Error sending invite', getApiErrorMessage(error, 'Failed to send invite.'));
+    }
+  });
+
+  const employees = data?.results ?? [];
 
   const filteredEmployees = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (!normalized) return employees;
     return employees.filter((employee) => {
-      const fullName = `${employee.firstName} ${employee.lastName}`.toLowerCase();
-      return (
-        fullName.includes(normalized) ||
-        employee.role.toLowerCase().includes(normalized) ||
-        (employee.department ?? '').toLowerCase().includes(normalized)
-      );
+      const fullName = `${employee.first_name} ${employee.last_name}`.toLowerCase();
+      return fullName.includes(normalized) || employee.designation.name.toLowerCase().includes(normalized);
     });
   }, [employees, query]);
 
-  const handleResendInvite = (name: string) => {
-    Alert.alert('Invite resent', `A new invite email has been sent to ${name}.`);
+  const handleResendInvite = (email: string) => {
+    inviteMutation.mutate(email);
   };
 
   return (
@@ -55,19 +68,28 @@ export function TeamDirectoryScreen() {
           onPress={() => router.push('/employee-form')}
         />
 
-        <View style={styles.list}>
-          {filteredEmployees.map((employee) => (
-            <EmployeeCard
-              key={employee.id}
-              name={`${employee.firstName} ${employee.lastName}`}
-              role={employee.role}
-              status={employee.status}
-              onEdit={() => router.push({ pathname: '/employee-form', params: { id: employee.id } })}
-              onResendInvite={() => handleResendInvite(`${employee.firstName} ${employee.lastName}`)}
-              onMore={() => notImplemented('More options')}
-            />
-          ))}
-        </View>
+        {isPending ? (
+          <ActivityIndicator color={Colors.primary} style={styles.loading} />
+        ) : isError ? (
+          <Text style={styles.errorText}>{getApiErrorMessage(error, 'Failed to load employees.')}</Text>
+        ) : (
+          <View style={styles.list}>
+            {filteredEmployees.map((employee) => (
+              <EmployeeCard
+                key={employee.uuid}
+                name={`${employee.first_name} ${employee.last_name}`}
+                email={employee.email}
+                role={employee.designation.name}
+                status={employee.is_active ? 'active' : 'inactive'}
+                isInvited={employee.is_invited}
+                onEdit={() => router.push({ pathname: '/employee-form', params: { id: employee.uuid } })}
+                onResendInvite={() => handleResendInvite(employee.email)}
+                onDelete={() => notImplemented('Delete Employee')}
+                onManagePermissions={() => notImplemented('Manage Permissions')}
+              />
+            ))}
+          </View>
+        )}
       </ScrollView>
     </AppShell>
   );
@@ -96,5 +118,12 @@ const styles = StyleSheet.create({
   list: {
     gap: Spacing.gutter,
     marginTop: Spacing.unit,
+  },
+  loading: {
+    marginTop: Spacing.sectionGap,
+  },
+  errorText: {
+    ...Typography.bodyMd,
+    color: Colors.error,
   },
 });

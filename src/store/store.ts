@@ -15,13 +15,11 @@ import devToolsEnhancer from "redux-devtools-expo-dev-plugin";
 import pendingLoginReducer from './slices/pending-login-slice';
 import pendingSignupReducer from './slices/pending-signup-slice';
 import authReducer from './slices/auth-slice';
-import employeesReducer from './slices/employees-slice';
 
 const rootReducer = combineReducers({
   pendingLogin: pendingLoginReducer,
   pendingSignup: pendingSignupReducer,
   auth: authReducer,
-  employees: employeesReducer,
 });
 
 const persistedReducer = persistReducer(

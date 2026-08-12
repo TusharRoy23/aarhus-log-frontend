@@ -8,12 +8,14 @@ export const StatusColors: Record<ShiftStatus, { background: string; text: strin
   pending: { background: '#fffbeb', text: '#b45309', strip: '#f59e0b' },
 };
 
-export type EmployeeStatus = 'active' | 'pending-invite';
+// Employment status (`is_active`) — separate from invite status
+// (`is_invited`, see EmployeeCard's `isInvited` prop). A deactivated
+// employee and one who hasn't accepted their invite yet are independent
+// states; a card can show both a "Not Active" badge and a "Resend Invite"
+// link at once.
+export type EmployeeStatus = 'active' | 'inactive';
 
-// Separate from ShiftStatus — "Pending Invite" (an employee record) is a
-// different concept from a "Pending" shift, even though both read as
-// amber/warm in the UI.
 export const EmployeeStatusColors: Record<EmployeeStatus, { background: string; text: string; strip: string }> = {
   active: { background: '#ecfdf5', text: '#047857', strip: '#10b981' },
-  'pending-invite': { background: '#fef2f2', text: '#b91c1c', strip: '#f59e0b' },
+  inactive: { background: '#fef2f2', text: '#b91c1c', strip: '#f59e0b' },
 };

@@ -2,6 +2,7 @@ import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Avatar } from './Avatar';
+import { ActionMenu } from './ActionMenu';
 import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
@@ -10,17 +11,31 @@ import { EmployeeStatusColors, type EmployeeStatus } from '../../theme/status';
 
 export interface EmployeeCardProps {
   name: string;
+  email: string;
   role: string;
   status: EmployeeStatus;
+  isInvited: boolean;
   avatarUri?: string;
   onEdit?: () => void;
   onResendInvite?: () => void;
-  onMore?: () => void;
+  onDelete?: () => void;
+  onManagePermissions?: () => void;
 }
 
-export function EmployeeCard({ name, role, status, avatarUri, onEdit, onResendInvite, onMore }: EmployeeCardProps) {
+export function EmployeeCard({
+  name,
+  email,
+  role,
+  status,
+  isInvited,
+  avatarUri,
+  onEdit,
+  onResendInvite,
+  onDelete,
+  onManagePermissions,
+}: EmployeeCardProps) {
   const statusColor = EmployeeStatusColors[status];
-  const statusLabel = status === 'active' ? 'Active' : 'Pending Invite';
+  const statusLabel = status === 'active' ? 'Active' : 'Not Active';
 
   return (
     <View style={styles.card}>
@@ -32,13 +47,29 @@ export function EmployeeCard({ name, role, status, avatarUri, onEdit, onResendIn
             <Avatar label={name} uri={avatarUri} size={40} />
             <View style={styles.identityText}>
               <Text style={styles.name}>{name}</Text>
+              <Text style={styles.email} numberOfLines={1}>
+                {email}
+              </Text>
               <Text style={styles.role}>{role}</Text>
             </View>
           </View>
 
-          <Pressable onPress={onMore} hitSlop={8}>
-            <MaterialIcons name="more-vert" size={20} color={Colors.onSurfaceVariant} />
-          </Pressable>
+          <ActionMenu
+            trigger={<MaterialIcons name="more-vert" size={20} color={Colors.onSurfaceVariant} />}
+            items={[
+              {
+                label: 'Manage Permissions',
+                icon: 'admin-panel-settings',
+                onPress: () => onManagePermissions?.(),
+              },
+              {
+                label: 'Delete Employee',
+                icon: 'delete',
+                destructive: true,
+                onPress: () => onDelete?.(),
+              },
+            ]}
+          />
         </View>
 
         <View style={styles.footer}>
@@ -48,10 +79,10 @@ export function EmployeeCard({ name, role, status, avatarUri, onEdit, onResendIn
               <Text style={[styles.badgeText, { color: statusColor.text }]}>{statusLabel}</Text>
             </View>
 
-            {status === 'pending-invite' ? (
+            {status === 'inactive' ? (
               <Pressable style={styles.resendRow} onPress={onResendInvite} hitSlop={8}>
                 <MaterialIcons name="mail-outline" size={16} color={Colors.primary} />
-                <Text style={styles.resendText}>Resend Invite</Text>
+                <Text style={styles.resendText}>{status === 'inactive' && isInvited ? 'Re-Invite' : 'Invite'}</Text>
               </Pressable>
             ) : null}
           </View>
@@ -101,6 +132,10 @@ const styles = StyleSheet.create({
   name: {
     ...Typography.titleMd,
     color: Colors.onSurface,
+  },
+  email: {
+    ...Typography.labelSm,
+    color: Colors.onSurfaceVariant,
   },
   role: {
     ...Typography.bodyMd,
