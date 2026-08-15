@@ -183,7 +183,8 @@ export function DateTimeField({ label, mode, value, onChange }: DateTimeFieldPro
         />
       ) : null}
 
-      {/* iOS: inline spinner in a bottom sheet, all modes supported directly */}
+      {/* iOS: inline spinner in a bottom sheet, all modes supported directly — the
+          sheet itself docks to the bottom, but the spinner is centered within it. */}
       {Platform.OS === 'ios' ? (
         <Modal visible={showPicker} transparent animationType="slide" onRequestClose={() => setShowPicker(false)}>
           <View style={styles.overlay}>
@@ -228,7 +229,7 @@ const styles = StyleSheet.create({
   },
   valueText: {
     ...Typography.bodyMd,
-    color: Colors.onSurface,
+    color: Colors.onSurface
   },
   placeholderText: {
     color: Colors.outline,
@@ -239,12 +240,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(11,28,48,0.4)',
   },
   sheet: {
+    alignItems: 'center',
     backgroundColor: Colors.surfaceContainerLowest,
     borderTopLeftRadius: Radius.lg,
     borderTopRightRadius: Radius.lg,
     paddingBottom: Spacing.gutter,
+    overflow: 'hidden',
   },
   doneRow: {
+    alignSelf: 'stretch',
     alignItems: 'flex-end',
     paddingHorizontal: Spacing.containerPaddingMobile,
     paddingVertical: Spacing.unit * 3,

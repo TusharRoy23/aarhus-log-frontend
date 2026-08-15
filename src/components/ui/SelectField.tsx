@@ -149,5 +149,7 @@ const styles = StyleSheet.create({
   optionText: {
     ...Typography.bodyLg,
     color: Colors.onSurface,
+    flex: 1,
+    textAlign: 'center',
   },
 });
