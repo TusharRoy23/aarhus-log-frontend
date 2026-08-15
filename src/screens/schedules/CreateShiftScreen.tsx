@@ -1,45 +1,80 @@
-import { useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MaterialIcons } from '@expo/vector-icons';
-import { Button, DateTimeField, SelectField, TextField } from '../../components/ui';
 import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
-import { Radius } from '../../theme/radius';
+import { employeeApi } from '../../lib/api/employee';
+import { scheduleApi, type CreateSchedulePayload, type ScheduleListResponse } from '../../lib/api/schedule';
+import { workLocationApi } from '../../lib/api/work-location';
+import { getApiErrorMessage } from '../../lib/api/base_api';
+import { CreateShiftForm, type CreateShiftFormValues } from './CreateShiftForm';
 
-// Sample data — there's no employees API yet.
-const EMPLOYEE_OPTIONS = [
-  { label: 'Sarah Jenkins', value: 'sarah-jenkins' },
-  { label: 'Marcus King', value: 'marcus-king' },
-  { label: 'David Chen', value: 'david-chen' },
-];
+// DateTimeField (mode="datetime") hands back local wall-clock time as
+// 'YYYY-MM-DDTHH:MM' (no seconds/offset). `new Date(...)` parses a
+// date-time string without an offset as local time, so `.toISOString()`
+// correctly converts it to the UTC 'Z' format the API expects — just strip
+// the milliseconds `new Date` always includes to match the confirmed
+// payload shape exactly.
+function toApiDateTime(localValue: string): string {
+  return new Date(localValue).toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
 
-const initialFormState = {
-  startTime: '',
-  endTime: '',
-  employee: '',
-  breakMinutes: '',
-  notes: '',
-};
-
-type FormState = typeof initialFormState;
+function toBreakTimeString(minutesInput: string): string {
+  const totalMinutes = parseInt(minutesInput, 10) || 0;
+  const hours = Math.floor(totalMinutes / 60).toString().padStart(2, '0');
+  const minutes = (totalMinutes % 60).toString().padStart(2, '0');
+  return `${hours}:${minutes}:00`;
+}
 
 export function CreateShiftScreen() {
   const router = useRouter();
-  const [form, setForm] = useState<FormState>(initialFormState);
+  const queryClient = useQueryClient();
 
-  const updateField = <K extends keyof FormState>(key: K, value: FormState[K]) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
-  };
+  const { data: employeeData, isPending: isEmployeesLoading } = useQuery({
+    queryKey: ['employees'],
+    queryFn: employeeApi.list,
+  });
+  const employeeOptions = (employeeData?.results ?? []).map((employee) => ({
+    label: `${employee.first_name} ${employee.last_name}`,
+    value: employee.uuid,
+  }));
 
-  const handleClear = () => setForm(initialFormState);
+  const { data: workLocationData, isPending: isWorkLocationsLoading } = useQuery({
+    queryKey: ['work-locations'],
+    queryFn: workLocationApi.list,
+  });
+  const workLocationOptions = (workLocationData?.results ?? [])
+    .filter((location) => location.is_active)
+    .map((location) => ({ label: `${location.name} (${location.client_name})`, value: location.uuid }));
 
-  const handleSave = () => {
-    // Alert's button onPress never fires on web (react-native-web's Alert.alert
-    // is a no-op there) — don't gate navigation behind it.
-    Alert.alert('Shift saved', "This is a UI preview — creating shifts isn't connected to a backend yet.");
-    router.back();
+  const createMutation = useMutation({
+    mutationFn: scheduleApi.create,
+    onSuccess: (created) => {
+      // Same cache-write pattern as Designations/Employees — the API hands
+      // back the full created record, so prepend it directly rather than
+      // refetching. (No screen reads the `['schedules']` cache yet, but
+      // this keeps it correct for whenever one does.)
+      queryClient.setQueryData<ScheduleListResponse>(['schedules'], (old) =>
+        old ? { results: [created, ...old.results], count: old.count + 1 } : old,
+      );
+      // Alert's button onPress never fires on web (react-native-web's
+      // Alert.alert is a no-op there) — don't gate navigation behind it.
+      Alert.alert('Shift saved', 'The shift has been created.');
+      router.back();
+    },
+  });
+
+  const handleSubmit = (values: CreateShiftFormValues) => {
+    const payload: CreateSchedulePayload = {
+      employee_uuid: values.employeeUuid,
+      start_time: toApiDateTime(values.startTime),
+      end_time: toApiDateTime(values.endTime),
+      break_time: toBreakTimeString(values.breakMinutes),
+      ...(values.workLocationUuid ? { work_location_uuid: values.workLocationUuid } : {}),
+    };
+    createMutation.mutate(payload);
   };
 
   return (
@@ -50,68 +85,15 @@ export function CreateShiftScreen() {
           <Text style={styles.backLabel}>Back</Text>
         </Pressable>
 
-        <View style={styles.card}>
-          <View style={styles.header}>
-            <Text style={styles.title}>Create New Shift</Text>
-            <Text style={styles.subtitle}>Schedule staffing requirements and employee assignments.</Text>
-          </View>
-
-          <View style={styles.divider} />
-
-          <View style={styles.form}>
-            <DateTimeField
-              label="Start Time"
-              mode="datetime"
-              value={form.startTime}
-              onChange={(value) => updateField('startTime', value)}
-            />
-
-            <DateTimeField
-              label="End Time"
-              mode="datetime"
-              value={form.endTime}
-              onChange={(value) => updateField('endTime', value)}
-            />
-
-            <SelectField
-              label="Employee Assignment"
-              placeholder="Select Employee"
-              value={form.employee}
-              options={EMPLOYEE_OPTIONS}
-              onChange={(value) => updateField('employee', value)}
-            />
-
-            <TextField
-              label="Break Time"
-              placeholder="e.g. 30"
-              value={form.breakMinutes}
-              onChangeText={(value) => updateField('breakMinutes', value.replace(/[^0-9]/g, ''))}
-              keyboardType="number-pad"
-              icon={<MaterialIcons name="free-breakfast" size={20} color={Colors.outline} />}
-              rightElement={<Text style={styles.unitLabel}>min</Text>}
-            />
-
-            <TextField
-              label="Internal Notes (Optional)"
-              placeholder="Add specific tasks or location details..."
-              value={form.notes}
-              onChangeText={(value) => updateField('notes', value)}
-              multiline
-              numberOfLines={4}
-              style={styles.notesInput}
-            />
-          </View>
-
-          <View style={styles.footer}>
-            <Button label="Clear" variant="secondary" onPress={handleClear} style={styles.footerButton} />
-            <Button
-              label="Save"
-              icon={<MaterialIcons name="save" size={18} color={Colors.onPrimary} />}
-              onPress={handleSave}
-              style={styles.footerButton}
-            />
-          </View>
-        </View>
+        <CreateShiftForm
+          employeeOptions={employeeOptions}
+          workLocationOptions={workLocationOptions}
+          isEmployeesLoading={isEmployeesLoading}
+          isWorkLocationsLoading={isWorkLocationsLoading}
+          isSubmitting={createMutation.isPending}
+          errorMessage={getApiErrorMessage(createMutation.error, '') || undefined}
+          onSubmit={handleSubmit}
+        />
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -137,51 +119,5 @@ const styles = StyleSheet.create({
   backLabel: {
     ...Typography.bodyMd,
     color: Colors.onSurfaceVariant,
-  },
-  card: {
-    backgroundColor: Colors.surfaceContainerLowest,
-    borderWidth: 1,
-    borderColor: Colors.outlineVariant,
-    borderRadius: Radius.lg,
-    padding: Spacing.cardPadding,
-  },
-  header: {
-    gap: Spacing.unit,
-    marginBottom: Spacing.gutter,
-  },
-  title: {
-    ...Typography.headlineLgMobile,
-    fontSize: 24,
-    lineHeight: 30,
-    color: Colors.onSurface,
-  },
-  subtitle: {
-    ...Typography.bodyMd,
-    color: Colors.onSurfaceVariant,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: Colors.outlineVariant,
-    marginBottom: Spacing.sectionGap,
-  },
-  form: {
-    gap: Spacing.unit * 6,
-    marginBottom: Spacing.sectionGap,
-  },
-  unitLabel: {
-    ...Typography.labelSm,
-    color: Colors.onSurfaceVariant,
-  },
-  notesInput: {
-    height: 96,
-    paddingTop: 12,
-    textAlignVertical: 'top',
-  },
-  footer: {
-    flexDirection: 'row',
-    gap: Spacing.gutter,
-  },
-  footerButton: {
-    flex: 1,
   },
 });

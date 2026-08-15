@@ -1,61 +1,50 @@
-import React, { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { DateScroller, ShiftCard } from '../../components/ui';
+import { DateScroller, ShiftCard, type DateScrollerItem } from '../../components/ui';
 import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
-
-// Sample data — there's no schedules API yet, so this section is a static
-// preview of the layout until one exists.
-const DATES = [
-  { label: 'Mon', day: 12 },
-  { label: 'Tue', day: 13 },
-  { label: 'Wed', day: 14 },
-  { label: 'Thu', day: 15 },
-  { label: 'Fri', day: 16 },
-  { label: 'Sat', day: 17 },
-  { label: 'Sun', day: 18 },
-];
-
-const SHIFTS: React.ComponentProps<typeof ShiftCard>[] = [
-  {
-    name: 'Sarah Jenkins',
-    role: 'Security Lead',
-    status: 'confirmed',
-    statusLabel: 'Confirmed',
-    timeRange: '06:00 - 14:00',
-    location: 'Main Lobby - Desk A',
-  },
-  {
-    name: 'Marcus King',
-    role: 'IT Support Technician',
-    status: 'pending',
-    statusLabel: 'Pending',
-    timeRange: '09:00 - 17:00',
-    location: 'HQ - Floor 3',
-  },
-  {
-    name: 'David Chen',
-    role: 'Facilities Coordinator',
-    status: 'confirmed',
-    statusLabel: 'Confirmed',
-    timeRange: '10:00 - 18:00',
-    location: 'HQ - Maintenance Wing',
-  },
-];
+import { formatTimeRange, isSameDay, locationLabel, capitalize } from './schedule-format';
+import type { Schedule } from '../../lib/api/schedule';
 
 function notImplemented(label: string) {
   Alert.alert(label, 'Coming soon.');
 }
 
-export function AllSchedulesSection() {
-  const [selectedDay, setSelectedDay] = useState(DATES[0].day);
+// A rolling 7-day window starting today — every `day` (day-of-month number)
+// in a 7-consecutive-day span is guaranteed unique even across a month
+// boundary, so it's safe to use as DateScroller's selection key.
+function buildWeekDates(): { item: DateScrollerItem; date: Date }[] {
+  const today = new Date();
+  return Array.from({ length: 7 }, (_, i) => {
+    const date = new Date(today.getFullYear(), today.getMonth(), today.getDate() + i);
+    return {
+      date,
+      item: { label: date.toLocaleDateString(undefined, { weekday: 'short' }), day: date.getDate() },
+    };
+  });
+}
+
+export interface AllSchedulesSectionProps {
+  schedules: Schedule[];
+}
+
+export function AllSchedulesSection({ schedules }: AllSchedulesSectionProps) {
+  const weekDates = useMemo(buildWeekDates, []);
+  const [selectedDay, setSelectedDay] = useState(weekDates[0].item.day);
+
+  const selectedDate = weekDates.find((w) => w.item.day === selectedDay)?.date ?? weekDates[0].date;
+
+  const shiftsForDay = useMemo(
+    () => schedules.filter((s) => isSameDay(new Date(s.start_time), selectedDate)),
+    [schedules, selectedDate],
+  );
 
   return (
     <View style={styles.container}>
-      <DateScroller dates={DATES} selectedDay={selectedDay} onSelect={setSelectedDay} />
+      <DateScroller dates={weekDates.map((w) => w.item)} selectedDay={selectedDay} onSelect={setSelectedDay} />
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
         <Pressable style={styles.filterChip} onPress={() => notImplemented('Filter by role')}>
@@ -67,11 +56,25 @@ export function AllSchedulesSection() {
         </Pressable>
       </ScrollView>
 
-      <View style={styles.shiftGrid}>
-        {SHIFTS.map((shift) => (
-          <ShiftCard key={shift.name} {...shift} />
-        ))}
-      </View>
+      {shiftsForDay.length > 0 ? (
+        <View style={styles.shiftGrid}>
+          {shiftsForDay.map((shift) => (
+            <ShiftCard
+              key={shift.uuid}
+              name={`${shift.employee.first_name} ${shift.employee.last_name}`}
+              role={shift.employee.designation.name}
+              status={shift.status}
+              statusLabel={capitalize(shift.status)}
+              timeRange={formatTimeRange(shift.start_time, shift.end_time)}
+              location={locationLabel(shift.work_location)}
+            />
+          ))}
+        </View>
+      ) : (
+        <View style={styles.emptyCard}>
+          <Text style={styles.emptyText}>No shifts scheduled for this day.</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -100,5 +103,16 @@ const styles = StyleSheet.create({
   },
   shiftGrid: {
     gap: Spacing.gutter,
+  },
+  emptyCard: {
+    backgroundColor: Colors.surfaceContainerLowest,
+    borderWidth: 1,
+    borderColor: Colors.outlineVariant,
+    borderRadius: Radius.lg,
+    padding: Spacing.cardPadding,
+  },
+  emptyText: {
+    ...Typography.bodyMd,
+    color: Colors.onSurfaceVariant,
   },
 });

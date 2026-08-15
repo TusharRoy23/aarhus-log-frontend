@@ -1,6 +1,7 @@
-import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useQuery } from '@tanstack/react-query';
 import { MaterialIcons } from '@expo/vector-icons';
 import { AppShell } from '../../components/layout/AppShell';
 import { Button, SegmentedControl } from '../../components/ui';
@@ -8,12 +9,25 @@ import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
+import { useAppSelector } from '../../store/hooks';
+import { scheduleApi } from '../../lib/api/schedule';
+import { employeeApi } from '../../lib/api/employee';
+import { getApiErrorMessage } from '../../lib/api/base_api';
 import { MyScheduleSection } from './MyScheduleSection';
 import { AllSchedulesSection } from './AllSchedulesSection';
 
 export function SchedulesScreen() {
   const router = useRouter();
   const [view, setView] = useState<'mine' | 'all'>('mine');
+  const currentUserEmail = useAppSelector((state) => state.auth.user?.email);
+
+  const {
+    data: scheduleData,
+    isPending: isSchedulesLoading,
+    isError: isSchedulesError,
+    error: schedulesError,
+  } = useQuery({ queryKey: ['schedules'], queryFn: scheduleApi.list });
+  const schedules = scheduleData?.results ?? [];
 
   return (
     <AppShell>
@@ -40,10 +54,18 @@ export function SchedulesScreen() {
           ]}
         />
 
-        {view === 'mine' ? (
-          <MyScheduleSection onViewAllShifts={() => setView('all')} />
+        {isSchedulesLoading ? (
+          <ActivityIndicator color={Colors.primary} style={styles.loading} />
+        ) : isSchedulesError ? (
+          <Text style={styles.errorText}>{getApiErrorMessage(schedulesError, 'Failed to load schedules.')}</Text>
+        ) : view === 'mine' ? (
+          <MyScheduleSection
+            schedules={schedules}
+            currentUserEmail={currentUserEmail}
+            onViewAllShifts={() => setView('all')}
+          />
         ) : (
-          <AllSchedulesSection />
+          <AllSchedulesSection schedules={schedules} />
         )}
       </ScrollView>
     </AppShell>
@@ -80,5 +102,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.gutter,
     paddingVertical: Spacing.unit * 3,
     borderRadius: Radius.full,
+  },
+  loading: {
+    marginTop: Spacing.sectionGap,
+  },
+  errorText: {
+    ...Typography.bodyMd,
+    color: Colors.error,
   },
 });
