@@ -80,15 +80,11 @@ export function CreateShiftScreen() {
   const saveMutation = useMutation({
     mutationFn: (payload: CreateSchedulePayload) =>
       isEditing ? scheduleApi.update(uuid!, payload) : scheduleApi.create(payload),
-    onSuccess: () => {
-      // Invalidate by key prefix rather than writing the response
-      // in-place (the Designations/Employees pattern) — schedules can be
-      // cached under several different keys (see above), so there's no
-      // single cache entry to patch; this refetches whichever of them the
-      // user is looking at next.
+    onSuccess: (saved) => {
       queryClient.invalidateQueries({ queryKey: ['schedules'] });
-      // Alert's button onPress never fires on web (react-native-web's
-      // Alert.alert is a no-op there) — don't gate navigation behind it.
+      if (isEditing) {
+        queryClient.setQueryData(['schedule', uuid], saved);
+      }
       Alert.alert(isEditing ? 'Shift updated' : 'Shift saved', isEditing ? 'The shift has been updated.' : 'The shift has been created.');
       router.back();
     },
