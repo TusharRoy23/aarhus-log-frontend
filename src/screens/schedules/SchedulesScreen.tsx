@@ -11,7 +11,6 @@ import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
 import { useAppSelector } from '../../store/hooks';
 import { scheduleApi } from '../../lib/api/schedule';
-import { employeeApi } from '../../lib/api/employee';
 import { getApiErrorMessage } from '../../lib/api/base_api';
 import { MyScheduleSection } from './MyScheduleSection';
 import { AllSchedulesSection } from './AllSchedulesSection';
@@ -21,12 +20,19 @@ export function SchedulesScreen() {
   const [view, setView] = useState<'mine' | 'all'>('mine');
   const currentUserEmail = useAppSelector((state) => state.auth.user?.email);
 
+  // "My Schedule" and "All Schedules" are backed by separate API calls, not
+  // one shared fetch filtered client-side — switching tabs sends a
+  // different `schedule_type` and gets its own query-cache entry.
+  const scheduleType = view === 'mine' ? 'individual' : 'all';
   const {
     data: scheduleData,
     isPending: isSchedulesLoading,
     isError: isSchedulesError,
     error: schedulesError,
-  } = useQuery({ queryKey: ['schedules'], queryFn: scheduleApi.list });
+  } = useQuery({
+    queryKey: ['schedules', scheduleType],
+    queryFn: () => scheduleApi.list({ schedule_type: scheduleType }),
+  });
   const schedules = scheduleData?.results ?? [];
 
   return (
@@ -37,12 +43,6 @@ export function SchedulesScreen() {
             <Text style={styles.title}>Schedules</Text>
             <Text style={styles.subtitle}>Manage and view team shifts across all zones.</Text>
           </View>
-          <Button
-            label="Create"
-            icon={<MaterialIcons name="add" size={20} color={Colors.onPrimary} />}
-            onPress={() => router.push('/create-shift')}
-            style={styles.createButton}
-          />
         </View>
 
         <SegmentedControl

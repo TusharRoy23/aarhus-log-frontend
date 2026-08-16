@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { DateScroller, ShiftCard, type DateScrollerItem } from '../../components/ui';
 import { Colors } from '../../theme/colors';
@@ -13,29 +14,71 @@ function notImplemented(label: string) {
   Alert.alert(label, 'Coming soon.');
 }
 
-// A rolling 7-day window starting today — every `day` (day-of-month number)
-// in a 7-consecutive-day span is guaranteed unique even across a month
-// boundary, so it's safe to use as DateScroller's selection key.
-function buildWeekDates(): { item: DateScrollerItem; date: Date }[] {
-  const today = new Date();
-  return Array.from({ length: 7 }, (_, i) => {
-    const date = new Date(today.getFullYear(), today.getMonth(), today.getDate() + i);
+const DAY_CHUNK_SIZE = 20;
+
+function dateKey(date: Date): string {
+  return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
+}
+
+function startOfDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function daysBetweenInclusive(from: Date, to: Date): number {
+  const ms = startOfDay(to).getTime() - startOfDay(from).getTime();
+  return Math.max(Math.floor(ms / (24 * 60 * 60 * 1000)) + 1, 0);
+}
+
+function buildDates(rangeStart: Date, count: number): { item: DateScrollerItem; date: Date }[] {
+  return Array.from({ length: count }, (_, i) => {
+    const date = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), rangeStart.getDate() + i);
     return {
       date,
-      item: { label: date.toLocaleDateString(undefined, { weekday: 'short' }), day: date.getDate() },
+      item: {
+        key: dateKey(date),
+        label: date.toLocaleDateString(undefined, { weekday: 'short' }),
+        day: date.getDate(),
+      },
     };
   });
 }
 
 export interface AllSchedulesSectionProps {
   schedules: Schedule[];
+  /**
+   * Bounds the date scroller to a specific range (e.g. a Manage Shifts
+   * "Date Range" filter) — dates only page in up to `to`, never beyond.
+   * When omitted, the scroller starts today and pages forward indefinitely
+   * (the "homepage" Schedules view — no range picker there).
+   */
+  dateRange?: { from: Date; to: Date };
 }
 
-export function AllSchedulesSection({ schedules }: AllSchedulesSectionProps) {
-  const weekDates = useMemo(buildWeekDates, []);
-  const [selectedDay, setSelectedDay] = useState(weekDates[0].item.day);
+export function AllSchedulesSection({ schedules, dateRange }: AllSchedulesSectionProps) {
+  const router = useRouter();
 
-  const selectedDate = weekDates.find((w) => w.item.day === selectedDay)?.date ?? weekDates[0].date;
+  // Captured once on mount — a changing `dateRange` is handled by the
+  // parent remounting this component (e.g. via a `key` tied to the range),
+  // not by reacting to prop changes here.
+  const [rangeStart] = useState(() => (dateRange ? startOfDay(dateRange.from) : startOfDay(new Date())));
+  const totalDaysAvailable = useState(() =>
+    dateRange ? daysBetweenInclusive(dateRange.from, dateRange.to) : Infinity,
+  )[0];
+
+  const [loadedCount, setLoadedCount] = useState(() => Math.min(DAY_CHUNK_SIZE, totalDaysAvailable));
+  const dates = useMemo(() => buildDates(rangeStart, loadedCount), [rangeStart, loadedCount]);
+
+  // A date filter is mandatory — there's no "show every schedule" state,
+  // so `selectedKey` always points at one of `dates` and tapping a chip
+  // always selects it (no toggle-to-deselect).
+  const [selectedKey, setSelectedKey] = useState(dates[0].item.key);
+
+  const canLoadMore = loadedCount < totalDaysAvailable;
+  const loadMoreDates = canLoadMore
+    ? () => setLoadedCount((count) => Math.min(count + DAY_CHUNK_SIZE, totalDaysAvailable))
+    : undefined;
+
+  const selectedDate = dates.find((w) => w.item.key === selectedKey)?.date ?? dates[0].date;
 
   const shiftsForDay = useMemo(
     () => schedules.filter((s) => isSameDay(new Date(s.start_time), selectedDate)),
@@ -44,7 +87,12 @@ export function AllSchedulesSection({ schedules }: AllSchedulesSectionProps) {
 
   return (
     <View style={styles.container}>
-      <DateScroller dates={weekDates.map((w) => w.item)} selectedDay={selectedDay} onSelect={setSelectedDay} />
+      <DateScroller
+        dates={dates.map((w) => w.item)}
+        selectedKey={selectedKey}
+        onSelect={setSelectedKey}
+        onEndReached={loadMoreDates}
+      />
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
         <Pressable style={styles.filterChip} onPress={() => notImplemented('Filter by role')}>
@@ -67,6 +115,8 @@ export function AllSchedulesSection({ schedules }: AllSchedulesSectionProps) {
               statusLabel={capitalize(shift.status)}
               timeRange={formatTimeRange(shift.start_time, shift.end_time)}
               location={locationLabel(shift.work_location)}
+              onDetails={() => notImplemented('Shift Details')}
+              onEdit={() => router.push({ pathname: '/create-shift', params: { uuid: shift.uuid } })}
             />
           ))}
         </View>

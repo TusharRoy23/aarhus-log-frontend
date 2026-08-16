@@ -1,12 +1,12 @@
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text } from 'react-native';
-import { useRouter } from 'expo-router';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { employeeApi } from '../../lib/api/employee';
-import { scheduleApi, type CreateSchedulePayload, type ScheduleListResponse } from '../../lib/api/schedule';
+import { scheduleApi, type CreateSchedulePayload } from '../../lib/api/schedule';
 import { workLocationApi } from '../../lib/api/work-location';
 import { getApiErrorMessage } from '../../lib/api/base_api';
 import { CreateShiftForm, type CreateShiftFormValues } from './CreateShiftForm';
@@ -28,9 +28,37 @@ function toBreakTimeString(minutesInput: string): string {
   return `${hours}:${minutes}:00`;
 }
 
+// Inverse of toApiDateTime — API datetimes come back with seconds + an
+// offset (e.g. '2026-08-02T12:45:00+02:00'); DateTimeField wants local
+// 'YYYY-MM-DDTHH:MM' with no seconds/offset. `new Date(iso)` already
+// resolves the offset for us, so reading the local getters back off it
+// gives the right wall-clock value to display.
+function fromApiDateTime(iso: string): string {
+  const date = new Date(iso);
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function fromBreakTimeString(breakTime: string): string {
+  const [hours, minutes] = breakTime.split(':').map(Number);
+  return String((hours || 0) * 60 + (minutes || 0));
+}
+
 export function CreateShiftScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { uuid } = useLocalSearchParams<{ uuid?: string }>();
+  const isEditing = Boolean(uuid);
+
+  // Schedules are cached under several different keys depending on which
+  // filters were active elsewhere (['schedules', scheduleType],
+  // ['schedules', from, to]) — there's no single list to read the record
+  // being edited out of, so fetch it directly by uuid instead.
+  const { data: existingSchedule, isPending: isExistingScheduleLoading } = useQuery({
+    queryKey: ['schedule', uuid],
+    queryFn: () => scheduleApi.get(uuid!),
+    enabled: isEditing,
+  });
 
   const { data: employeeData, isPending: isEmployeesLoading } = useQuery({
     queryKey: ['employees'],
@@ -49,19 +77,19 @@ export function CreateShiftScreen() {
     .filter((location) => location.is_active)
     .map((location) => ({ label: `${location.name} (${location.client_name})`, value: location.uuid }));
 
-  const createMutation = useMutation({
-    mutationFn: scheduleApi.create,
-    onSuccess: (created) => {
-      // Same cache-write pattern as Designations/Employees — the API hands
-      // back the full created record, so prepend it directly rather than
-      // refetching. (No screen reads the `['schedules']` cache yet, but
-      // this keeps it correct for whenever one does.)
-      queryClient.setQueryData<ScheduleListResponse>(['schedules'], (old) =>
-        old ? { results: [created, ...old.results], count: old.count + 1 } : old,
-      );
+  const saveMutation = useMutation({
+    mutationFn: (payload: CreateSchedulePayload) =>
+      isEditing ? scheduleApi.update(uuid!, payload) : scheduleApi.create(payload),
+    onSuccess: () => {
+      // Invalidate by key prefix rather than writing the response
+      // in-place (the Designations/Employees pattern) — schedules can be
+      // cached under several different keys (see above), so there's no
+      // single cache entry to patch; this refetches whichever of them the
+      // user is looking at next.
+      queryClient.invalidateQueries({ queryKey: ['schedules'] });
       // Alert's button onPress never fires on web (react-native-web's
       // Alert.alert is a no-op there) — don't gate navigation behind it.
-      Alert.alert('Shift saved', 'The shift has been created.');
+      Alert.alert(isEditing ? 'Shift updated' : 'Shift saved', isEditing ? 'The shift has been updated.' : 'The shift has been created.');
       router.back();
     },
   });
@@ -74,8 +102,18 @@ export function CreateShiftScreen() {
       break_time: toBreakTimeString(values.breakMinutes),
       ...(values.workLocationUuid ? { work_location_uuid: values.workLocationUuid } : {}),
     };
-    createMutation.mutate(payload);
+    saveMutation.mutate(payload);
   };
+
+  const initialValues: CreateShiftFormValues | undefined = existingSchedule
+    ? {
+      startTime: fromApiDateTime(existingSchedule.start_time),
+      endTime: fromApiDateTime(existingSchedule.end_time),
+      employeeUuid: existingSchedule.employee.uuid,
+      workLocationUuid: existingSchedule.work_location?.uuid ?? '',
+      breakMinutes: fromBreakTimeString(existingSchedule.break_time),
+    }
+    : undefined;
 
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -85,15 +123,20 @@ export function CreateShiftScreen() {
           <Text style={styles.backLabel}>Back</Text>
         </Pressable>
 
-        <CreateShiftForm
-          employeeOptions={employeeOptions}
-          workLocationOptions={workLocationOptions}
-          isEmployeesLoading={isEmployeesLoading}
-          isWorkLocationsLoading={isWorkLocationsLoading}
-          isSubmitting={createMutation.isPending}
-          errorMessage={getApiErrorMessage(createMutation.error, '') || undefined}
-          onSubmit={handleSubmit}
-        />
+        {isEditing && isExistingScheduleLoading ? (
+          <ActivityIndicator color={Colors.primary} style={styles.loading} />
+        ) : (
+          <CreateShiftForm
+            employeeOptions={employeeOptions}
+            workLocationOptions={workLocationOptions}
+            isEmployeesLoading={isEmployeesLoading}
+            isWorkLocationsLoading={isWorkLocationsLoading}
+            isSubmitting={saveMutation.isPending}
+            errorMessage={getApiErrorMessage(saveMutation.error, '') || undefined}
+            initialValues={initialValues}
+            onSubmit={handleSubmit}
+          />
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -119,5 +162,8 @@ const styles = StyleSheet.create({
   backLabel: {
     ...Typography.bodyMd,
     color: Colors.onSurfaceVariant,
+  },
+  loading: {
+    marginTop: Spacing.sectionGap,
   },
 });

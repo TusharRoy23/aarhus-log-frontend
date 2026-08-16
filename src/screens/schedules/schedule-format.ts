@@ -4,12 +4,29 @@ import type { WorkLocation } from '../../lib/api/schedule';
 // MyScheduleSection and AllSchedulesSection so date/time/location display
 // stays consistent between the two tabs.
 
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function formatTime(date: Date): string {
+  return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+}
+
+// "15 Aug" — day-then-month, fixed order (not `toLocaleDateString`, whose
+// day/month order flips by locale) so it reads the same everywhere.
+function formatDayMonth(date: Date): string {
+  return `${date.getDate()} ${MONTH_SHORT[date.getMonth()]}`;
+}
+
+// Shifts commonly span midnight (see CreateShiftScreen), so a bare
+// "23:00 - 05:00" is ambiguous about which day is which. Same-day shifts
+// show the date once ("15 Aug 08:00 - 16:00"); overnight shifts show it on
+// both ends ("15 Aug 23:00 - 16 Aug 05:00").
 export function formatTimeRange(startIso: string, endIso: string): string {
-  const format = (iso: string) => {
-    const date = new Date(iso);
-    return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-  };
-  return `${format(startIso)} - ${format(endIso)}`;
+  const start = new Date(startIso);
+  const end = new Date(endIso);
+  if (isSameDay(start, end)) {
+    return `${formatDayMonth(start)} ${formatTime(start)} - ${formatTime(end)}`;
+  }
+  return `${formatDayMonth(start)} ${formatTime(start)} - ${formatDayMonth(end)} ${formatTime(end)}`;
 }
 
 export function isSameDay(a: Date, b: Date): boolean {

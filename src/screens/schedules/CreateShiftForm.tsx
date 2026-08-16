@@ -30,6 +30,14 @@ export interface CreateShiftFormProps {
   isWorkLocationsLoading: boolean;
   isSubmitting: boolean;
   errorMessage?: string;
+  /**
+   * When present, the form opens pre-filled for editing that shift instead
+   * of creating a new one. `CreateShiftScreen` only mounts this component
+   * once the existing record has loaded (rather than passing it in
+   * asynchronously), so `initialValues` is always ready by first render —
+   * no need to re-sync local state to a prop that changes after mount.
+   */
+  initialValues?: CreateShiftFormValues;
   onSubmit: (values: CreateShiftFormValues) => void;
 }
 
@@ -48,16 +56,18 @@ export function CreateShiftForm({
   isWorkLocationsLoading,
   isSubmitting,
   errorMessage,
+  initialValues,
   onSubmit,
 }: CreateShiftFormProps) {
-  const [form, setForm] = useState<CreateShiftFormValues>(initialFormState);
+  const isEditing = Boolean(initialValues);
+  const [form, setForm] = useState<CreateShiftFormValues>(initialValues ?? initialFormState);
   const [validationError, setValidationError] = useState<string | undefined>();
 
   const updateField = <K extends keyof CreateShiftFormValues>(key: K, value: CreateShiftFormValues[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
-  const handleClear = () => setForm(initialFormState);
+  const handleClear = () => setForm(initialValues ?? initialFormState);
 
   const handleSave = () => {
     if (!form.startTime || !form.endTime || !form.employeeUuid) {
@@ -73,8 +83,12 @@ export function CreateShiftForm({
   return (
     <View style={styles.card}>
       <View style={styles.header}>
-        <Text style={styles.title}>Create New Shift</Text>
-        <Text style={styles.subtitle}>Schedule staffing requirements and employee assignments.</Text>
+        <Text style={styles.title}>{isEditing ? 'Edit Shift' : 'Create New Shift'}</Text>
+        <Text style={styles.subtitle}>
+          {isEditing
+            ? "Update this shift's details."
+            : 'Schedule staffing requirements and employee assignments.'}
+        </Text>
       </View>
 
       <View style={styles.divider} />
@@ -140,7 +154,7 @@ export function CreateShiftForm({
       <View style={styles.footer}>
         <Button label="Clear" variant="secondary" onPress={handleClear} style={styles.footerButton} />
         <Button
-          label="Save"
+          label='Save'
           icon={<MaterialIcons name="save" size={18} color={Colors.onPrimary} />}
           loading={isSubmitting}
           onPress={handleSave}
