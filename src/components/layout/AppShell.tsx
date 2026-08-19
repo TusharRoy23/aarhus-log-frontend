@@ -12,7 +12,7 @@ import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
 import { clearAuth } from '../../store/slices/auth-slice';
-import { clearPermissions, useCan } from '../../store/slices/permissions-slice';
+import { clearPermissions, usePermissionCheck } from '../../store/slices/permissions-slice';
 import { tokenStore } from '../../lib/api/utils';
 
 const WIDE_BREAKPOINT = 768;
@@ -47,14 +47,62 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
   const dispatch = useAppDispatch();
   const user = useAppSelector((state) => state.auth.user);
   const organization = useAppSelector((state) => state.auth.organization);
-  const canViewSchedule = useCan('schedule', 'view');
-  const canViewEmployee = useCan('employee', 'view');
-  const canViewDesignation = useCan('designation', 'view');
+  const can = usePermissionCheck();
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
 
   const userName = user?.name || user?.username || 'Account';
+
+  // Add a new Menu item by appending one entry here — `visible` gates it on
+  // a permission via `can(resource, action)`, called inline (a plain
+  // function, not a hook, so it's safe to call however many times here).
+  // Omit `visible` for links with no matching resource, e.g. Team
+  // Settings/Reports below.
+  const menuLinks: { key: string; icon: keyof typeof MaterialIcons.glyphMap; label: string; onPress: () => void; visible?: boolean }[] = [
+    {
+      key: 'manage-shifts',
+      icon: 'calendar-today',
+      label: 'Manage Shifts',
+      visible: can('schedule', 'view'),
+      onPress: () => {
+        setMenuOpen(false);
+        router.push('/shifts');
+      },
+    },
+    {
+      key: 'employees',
+      icon: 'person-add',
+      label: 'Employees',
+      visible: can('employee', 'view'),
+      onPress: () => {
+        setMenuOpen(false);
+        router.push('/team');
+      },
+    },
+    {
+      key: 'designations',
+      icon: 'badge',
+      label: 'Designations',
+      visible: can('designation', 'view'),
+      onPress: () => {
+        setMenuOpen(false);
+        router.push('/designations');
+      },
+    },
+    {
+      key: 'team-settings',
+      icon: 'settings',
+      label: 'Team Settings',
+      onPress: () => notImplemented('Team Settings'),
+    },
+    {
+      key: 'reports',
+      icon: 'assessment',
+      label: 'Reports',
+      onPress: () => notImplemented('Reports'),
+    },
+  ];
 
   const handleSignOut = () => {
     setMenuOpen(false);
@@ -101,38 +149,11 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
 
       <SideDrawer visible={menuOpen} onClose={() => setMenuOpen(false)}>
         <DrawerHeader title="Menu" onClose={() => setMenuOpen(false)} />
-        {canViewSchedule ? (
-          <DrawerLink
-            icon="calendar-today"
-            label="Manage Shifts"
-            onPress={() => {
-              setMenuOpen(false);
-              router.push('/shifts');
-            }}
-          />
-        ) : null}
-        {canViewEmployee ? (
-          <DrawerLink
-            icon="person-add"
-            label="Employees"
-            onPress={() => {
-              setMenuOpen(false);
-              router.push('/team');
-            }}
-          />
-        ) : null}
-        {canViewDesignation ? (
-          <DrawerLink
-            icon="badge"
-            label="Designations"
-            onPress={() => {
-              setMenuOpen(false);
-              router.push('/designations');
-            }}
-          />
-        ) : null}
-        <DrawerLink icon="settings" label="Team Settings" onPress={() => notImplemented('Team Settings')} />
-        <DrawerLink icon="assessment" label="Reports" onPress={() => notImplemented('Reports')} />
+        {menuLinks
+          .filter((link) => link.visible !== false)
+          .map((link) => (
+            <DrawerLink key={link.key} icon={link.icon} label={link.label} onPress={link.onPress} />
+          ))}
       </SideDrawer>
 
       <SideDrawer visible={profileOpen} onClose={() => setProfileOpen(false)}>

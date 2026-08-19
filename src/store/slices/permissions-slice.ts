@@ -44,9 +44,16 @@ const permissionsSlice = createSlice({
 export const { setPermissions, clearPermissions } = permissionsSlice.actions;
 export default permissionsSlice.reducer;
 
-// `is_owner` is an unconditional bypass — an owner sees everything even if
-// a given resource key happens to be missing from `permissions` (the
-// resource keys are explicitly dynamic per the API, not a fixed set).
-export function useCan(resource: string, action: keyof PermissionActions): boolean {
-    return useAppSelector((state) => state.permissions.isOwner || Boolean(state.permissions.permissions[resource]?.[action]));
+// A single hook call that returns a plain `can(resource, action)` function,
+// rather than one hook call per resource — React's rules of hooks forbid
+// calling a hook a dynamic number of times (e.g. inside a `.map()`), but a
+// plain function returned from one hook call can be invoked however many
+// times, with whatever resource/action pairs, from anywhere: a data-driven
+// list like AppShell's `menuLinks`, a loop, wherever. `is_owner` is an
+// unconditional bypass — an owner sees everything even if a given resource
+// key happens to be missing from `permissions` (the resource keys are
+// explicitly dynamic per the API, not a fixed set).
+export function usePermissionCheck(): (resource: string, action: keyof PermissionActions) => boolean {
+    const { isOwner, permissions } = useAppSelector((state) => state.permissions);
+    return (resource, action) => isOwner || Boolean(permissions[resource]?.[action]);
 }
