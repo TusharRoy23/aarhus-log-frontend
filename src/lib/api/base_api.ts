@@ -4,6 +4,8 @@ import { isTokenValid, refreshAccessToken } from './refresh_token_strategy';
 import { tokenStore } from './utils';
 import { store, persistor } from '../../store/store';
 import { clearAuth } from '../../store/slices/auth-slice';
+import { clearPermissions } from '../../store/slices/permissions-slice';
+import { showToast } from '../../store/slices/toast-slice';
 
 // ─── Axios Instance ───────────────────────────────────────────────────────────
 const baseApi = axios.create({
@@ -59,14 +61,28 @@ baseApi.interceptors.response.use(
             console.warn(`[API] Error ${error.response?.status} ${error.config?.url}`, error.response?.data);
         }
 
-        if (error.response?.status === 401) {
+        const status = error.response?.status;
+
+        if (status === 401) {
             // Session is genuinely dead (bad/expired token rejected outright,
             // not just proactively refreshed) — clear everything and bounce
             // back to the login screen.
             tokenStore.clear();
             store.dispatch(clearAuth());
+            store.dispatch(clearPermissions());
             persistor.purge();
             router.replace('/');
+        } else if (status === 403 || status === 404 || (status && status >= 500)) {
+            // Everything else that isn't already handled reactively (401)
+            // or shown inline by the calling screen's own form-level error
+            // state — forbidden, not found, and server errors surface as a
+            // global toast so they're never silently swallowed.
+            store.dispatch(
+                showToast({
+                    message: getApiErrorMessage(error.response?.data, 'Something went wrong. Please try again.'),
+                    variant: 'error',
+                }),
+            );
         }
 
         return Promise.reject(error.response?.data);

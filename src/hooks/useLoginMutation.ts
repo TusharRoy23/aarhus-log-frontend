@@ -5,6 +5,7 @@ import { tokenStore } from '../lib/api/utils';
 import { useAppDispatch } from '../store/hooks';
 import { clearPendingLogin } from '../store/slices/pending-login-slice';
 import { setAuth } from '../store/slices/auth-slice';
+import { fetchAndStorePermissions } from '../store/permissions-actions';
 
 // Shared by LoginScreen (single-org auto-login) and OrganizationSelectorScreen
 // (post-picker login) — both end a `loginLookup` flow the same way: call
@@ -21,6 +22,9 @@ export function useLoginMutation() {
       tokenStore.set({ access: data.access, refresh: data.refresh });
       dispatch(setAuth({ user: data.user, organization: data.organization }));
       dispatch(clearPendingLogin());
+      // Fire-and-forget — menu visibility shouldn't block landing on the
+      // post-login screen; it fills in the moment the fetch resolves.
+      fetchAndStorePermissions(dispatch);
       router.replace('/schedules');
     },
   });

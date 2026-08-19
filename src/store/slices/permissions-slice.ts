@@ -1,0 +1,52 @@
+import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
+import type { IndividualPermissions, PermissionActions, Permissions } from '../../lib/api/permission';
+import { useAppSelector } from '../hooks';
+
+// Mirrors auth-slice.ts's shape/rationale: a persisted slice populated at
+// the same two moments identity is (fresh login, app-relaunch bootstrap
+// with a still-valid token) so menu visibility survives a restart without
+// waiting on a fresh network round-trip.
+//
+// Deliberately no runtime dependency on `lib/api/permission.ts` here (only
+// `import type`) — that module imports `baseApi`, which itself imports
+// `clearPermissions` from this file to clear permissions on a 401. A
+// runtime import back to `permission.ts` would make that circular
+// (base_api -> permissions-slice -> permission -> base_api). The
+// `permissionApi`-dependent fetch helper lives in `permissions-actions.ts`
+// instead, which only ever gets imported by call sites that don't feed
+// back into `base_api.ts`.
+
+type PermissionsState = {
+    isOwner: boolean;
+    permissions: Permissions;
+};
+
+const initialState: PermissionsState = {
+    isOwner: false,
+    permissions: {},
+};
+
+const permissionsSlice = createSlice({
+    name: 'permissions',
+    initialState,
+    reducers: {
+        setPermissions: (state, action: PayloadAction<IndividualPermissions>) => {
+            state.isOwner = action.payload.is_owner;
+            state.permissions = action.payload.permissions;
+        },
+        clearPermissions: (state) => {
+            state.isOwner = false;
+            state.permissions = {};
+        },
+    },
+});
+
+export const { setPermissions, clearPermissions } = permissionsSlice.actions;
+export default permissionsSlice.reducer;
+
+// `is_owner` is an unconditional bypass — an owner sees everything even if
+// a given resource key happens to be missing from `permissions` (the
+// resource keys are explicitly dynamic per the API, not a fixed set).
+export function useCan(resource: string, action: keyof PermissionActions): boolean {
+    return useAppSelector((state) => state.permissions.isOwner || Boolean(state.permissions.permissions[resource]?.[action]));
+}

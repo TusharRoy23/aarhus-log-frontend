@@ -12,6 +12,7 @@ import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
 import { clearAuth } from '../../store/slices/auth-slice';
+import { clearPermissions, useCan } from '../../store/slices/permissions-slice';
 import { tokenStore } from '../../lib/api/utils';
 
 const WIDE_BREAKPOINT = 768;
@@ -46,6 +47,9 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
   const dispatch = useAppDispatch();
   const user = useAppSelector((state) => state.auth.user);
   const organization = useAppSelector((state) => state.auth.organization);
+  const canViewSchedule = useCan('schedule', 'view');
+  const canViewEmployee = useCan('employee', 'view');
+  const canViewDesignation = useCan('designation', 'view');
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -57,6 +61,7 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
     setProfileOpen(false);
     tokenStore.clear();
     dispatch(clearAuth());
+    dispatch(clearPermissions());
     router.replace('/');
   };
 
@@ -96,30 +101,36 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
 
       <SideDrawer visible={menuOpen} onClose={() => setMenuOpen(false)}>
         <DrawerHeader title="Menu" onClose={() => setMenuOpen(false)} />
-        <DrawerLink
-          icon="calendar-today"
-          label="Manage Shifts"
-          onPress={() => {
-            setMenuOpen(false);
-            router.push('/shifts');
-          }}
-        />
-        <DrawerLink
-          icon="person-add"
-          label="Employees"
-          onPress={() => {
-            setMenuOpen(false);
-            router.push('/team');
-          }}
-        />
-        <DrawerLink
-          icon="badge"
-          label="Designations"
-          onPress={() => {
-            setMenuOpen(false);
-            router.push('/designations');
-          }}
-        />
+        {canViewSchedule ? (
+          <DrawerLink
+            icon="calendar-today"
+            label="Manage Shifts"
+            onPress={() => {
+              setMenuOpen(false);
+              router.push('/shifts');
+            }}
+          />
+        ) : null}
+        {canViewEmployee ? (
+          <DrawerLink
+            icon="person-add"
+            label="Employees"
+            onPress={() => {
+              setMenuOpen(false);
+              router.push('/team');
+            }}
+          />
+        ) : null}
+        {canViewDesignation ? (
+          <DrawerLink
+            icon="badge"
+            label="Designations"
+            onPress={() => {
+              setMenuOpen(false);
+              router.push('/designations');
+            }}
+          />
+        ) : null}
         <DrawerLink icon="settings" label="Team Settings" onPress={() => notImplemented('Team Settings')} />
         <DrawerLink icon="assessment" label="Reports" onPress={() => notImplemented('Reports')} />
       </SideDrawer>

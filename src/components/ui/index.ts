@@ -16,3 +16,4 @@ export * from './OtpInput';
 export * from './ActionMenu';
 export * from './EmployeeCard';
 export * from './DesignationCard';
+export * from './Toast';

@@ -12,6 +12,7 @@ import {
   useFonts,
 } from '@expo-google-fonts/inter';
 import { Colors } from '../theme/colors';
+import { Toast } from '../components/ui';
 import { QueryClientProvider } from '@tanstack/react-query';
 import queryClient from '../lib/query-client';
 import { Provider as StoreProvider } from 'react-redux';
@@ -19,6 +20,8 @@ import { PersistGate } from 'redux-persist/integration/react';
 import { persistor, store } from '../store/store';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { clearAuth } from '../store/slices/auth-slice';
+import { clearPermissions } from '../store/slices/permissions-slice';
+import { fetchAndStorePermissions } from '../store/permissions-actions';
 import { tokenStore } from '../lib/api/utils';
 import { isTokenValid, refreshAccessToken } from '../lib/api/refresh_token_strategy';
 
@@ -68,7 +71,14 @@ function AppNavigator() {
       if (!token) {
         tokenStore.clear();
         dispatch(clearAuth());
+        dispatch(clearPermissions());
         persistor.purge();
+      } else {
+        // Refreshes the persisted permission set in the background on
+        // every relaunch of an existing session — doesn't block
+        // bootstrapping, the last-known copy is already good enough to
+        // render the menu with.
+        fetchAndStorePermissions(dispatch);
       }
       if (!cancelled) setIsBootstrapping(false);
     })();
@@ -90,6 +100,7 @@ function AppNavigator() {
         <Stack.Screen name="employee-form" options={{ presentation: 'modal' }} />
         <Stack.Screen name="designation-form" options={{ presentation: 'modal' }} />
       </Stack>
+      <Toast />
       <StatusBar style="dark" />
     </SafeAreaProvider>
   );
