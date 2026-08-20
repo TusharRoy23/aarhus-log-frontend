@@ -102,6 +102,7 @@ function AppNavigator() {
         <Stack.Screen name="create-shift" options={{ presentation: 'modal' }} />
         <Stack.Screen name="employee-form" options={{ presentation: 'modal' }} />
         <Stack.Screen name="designation-form" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="designation-permissions" options={{ presentation: 'modal' }} />
       </Stack>
       <Toast />
       <StatusBar style="dark" />

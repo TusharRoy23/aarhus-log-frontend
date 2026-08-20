@@ -43,3 +43,41 @@ export const permissionApi = {
         return response.data;
     },
 };
+
+// "What can this designation do" — distinct from `individualPermissions` above
+// ("what can I, the logged-in employee, do"). Same underlying add/update/
+// delete/view actions, but returned per-model as a flat list of {name, code,
+// is_selected} rather than the nested Record shape, since this is meant to be
+// rendered as an editable checkbox matrix.
+export type PermissionAction = {
+    name: string;
+    code: string;
+    is_selected: boolean;
+};
+
+export type PermissionModel = {
+    model: string;
+    actions: PermissionAction[];
+};
+
+export type DesignationPermissionsResponse = {
+    results: PermissionModel[];
+    count: number;
+};
+
+export type UpdateDesignationPermissionsPayload = {
+    permissions: string[];
+};
+
+const designationPermissionsPath = (uuid: string) => `/employee/designations/${uuid}/permissions/`;
+
+export const designationPermissionApi = {
+    get: async (uuid: string): Promise<DesignationPermissionsResponse> => {
+        const response = await baseApi.get<DesignationPermissionsResponse>(apiPath(designationPermissionsPath(uuid)));
+        return response.data;
+    },
+    update: async (uuid: string, payload: UpdateDesignationPermissionsPayload): Promise<string> => {
+        const response = await baseApi.put<string>(apiPath(designationPermissionsPath(uuid)), payload);
+        return response.data;
+    },
+};

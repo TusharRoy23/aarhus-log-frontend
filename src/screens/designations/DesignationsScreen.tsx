@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -11,6 +11,10 @@ import { Spacing } from '../../theme/spacing';
 import { designationApi } from '../../lib/api/designation';
 import { Resources } from '../../lib/api/permission';
 import { getApiErrorMessage } from '../../lib/api/base_api';
+
+function notImplemented(label: string) {
+  Alert.alert(label, 'Coming soon.');
+}
 
 export function DesignationsScreen() {
   const router = useRouter();
@@ -59,6 +63,10 @@ export function DesignationsScreen() {
                 isActive={designation.is_active}
                 isOwner={designation.is_owner}
                 onEdit={() => router.push({ pathname: '/designation-form', params: { id: designation.uuid } })}
+                onManagePermissions={() =>
+                  router.push({ pathname: '/designation-permissions', params: { id: designation.uuid } })
+                }
+                onDelete={() => notImplemented('Delete Designation')}
               />
             ))}
           </View>

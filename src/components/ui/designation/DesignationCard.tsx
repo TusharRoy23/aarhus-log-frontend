@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { ActionMenu } from '../ActionMenu';
 import { Colors } from '../../../theme/colors';
 import { Typography } from '../../../theme/typography';
 import { Spacing } from '../../../theme/spacing';
@@ -12,9 +13,11 @@ export interface DesignationCardProps {
   isActive: boolean;
   isOwner: boolean;
   onEdit?: () => void;
+  onManagePermissions?: () => void;
+  onDelete?: () => void;
 }
 
-export function DesignationCard({ name, isActive, isOwner, onEdit }: DesignationCardProps) {
+export function DesignationCard({ name, isActive, isOwner, onEdit, onManagePermissions, onDelete }: DesignationCardProps) {
   const stripColor = isActive ? '#10b981' : Colors.outline;
   const can = usePermissionCheck();
 
@@ -39,12 +42,31 @@ export function DesignationCard({ name, isActive, isOwner, onEdit }: Designation
           </View>
         </View>
 
-        {can(Resources.DESIGNATION, 'update') && (
-          <Pressable style={styles.editButton} onPress={onEdit}>
-            <MaterialIcons name="edit" size={16} color={Colors.primary} />
-            <Text style={styles.editButtonText}>Edit</Text>
-          </Pressable>
-        )}
+        <View style={styles.actions}>
+          {can(Resources.DESIGNATION, 'update') && (
+            <Pressable style={styles.editButton} onPress={onEdit}>
+              <MaterialIcons name="edit" size={16} color={Colors.primary} />
+              <Text style={styles.editButtonText}>Edit</Text>
+            </Pressable>
+          )}
+
+          <ActionMenu
+            trigger={<MaterialIcons name="more-vert" size={20} color={Colors.onSurfaceVariant} />}
+            items={[
+              {
+                label: 'Manage Permissions',
+                icon: 'admin-panel-settings',
+                onPress: () => onManagePermissions?.(),
+              },
+              {
+                label: 'Delete Designation',
+                icon: 'delete',
+                destructive: true,
+                onPress: () => onDelete?.(),
+              },
+            ]}
+          />
+        </View>
       </View>
     </View>
   );
@@ -113,6 +135,11 @@ const styles = StyleSheet.create({
   ownerBadgeText: {
     ...Typography.labelSm,
     color: Colors.onSecondaryContainer,
+  },
+  actions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.unit * 3,
   },
   editButton: {
     flexDirection: 'row',
