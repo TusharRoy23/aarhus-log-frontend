@@ -5,7 +5,7 @@ import { tokenStore } from './utils';
 import { store, persistor } from '../../store/store';
 import { clearAuth } from '../../store/slices/auth-slice';
 import { clearPermissions } from '../../store/slices/permissions-slice';
-import { showToast } from '../../store/slices/toast-slice';
+import queryClient from '../query-client';
 
 // ─── Axios Instance ───────────────────────────────────────────────────────────
 const baseApi = axios.create({
@@ -71,21 +71,11 @@ baseApi.interceptors.response.use(
             store.dispatch(clearAuth());
             store.dispatch(clearPermissions());
             persistor.purge();
+            queryClient.clear();
             router.replace('/');
-        } else if (status === 403 || status === 404 || (status && status >= 500)) {
-            // Everything else that isn't already handled reactively (401)
-            // or shown inline by the calling screen's own form-level error
-            // state — forbidden, not found, and server errors surface as a
-            // global toast so they're never silently swallowed.
-            store.dispatch(
-                showToast({
-                    message: getApiErrorMessage(error.response?.data, 'Something went wrong. Please try again.'),
-                    variant: 'error',
-                }),
-            );
         }
 
-        return Promise.reject(error.response?.data);
+        return Promise.reject(Object.assign({}, error.response?.data, { status }));
     },
 );
 

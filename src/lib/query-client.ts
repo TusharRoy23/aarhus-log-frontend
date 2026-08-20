@@ -1,5 +1,18 @@
 import { AppState } from 'react-native';
-import { focusManager, QueryClient } from '@tanstack/react-query';
+import { focusManager, MutationCache, QueryCache, QueryClient } from '@tanstack/react-query';
+import { store } from '../store/store';
+import { showToast } from '../store/slices/toast-slice';
+
+// Deliberately not imported from base_api.ts, which itself imports this file
+// (for queryClient.clear() on 401) — importing getApiErrorMessage back from
+// there would make base_api.ts <-> query-client.ts circular. Same small
+// extraction logic, kept local instead.
+function getErrorMessage(error: unknown, fallback: string): string {
+    if (error && typeof error === 'object' && 'message' in error && typeof (error as { message?: unknown }).message === 'string') {
+        return (error as { message: string }).message;
+    }
+    return fallback;
+}
 
 // Tell React Query to treat app coming to foreground as a "focus" event,
 // so stale queries refetch when the user returns to the app.
@@ -10,12 +23,40 @@ focusManager.setEventListener((onFocus) => {
     return () => sub.remove();
 });
 
+// Forbidden/not-found/expired-token requests can't succeed by retrying, so
+// skip retries for them; everything else (network blips, 5xx) still gets up
+// to 2 retries as before.
+function shouldRetry(failureCount: number, error: unknown): boolean {
+    const status = (error as { status?: number })?.status;
+    if (status === 401 || status === 403 || status === 404) return false;
+    return failureCount < 2;
+}
+
+// Centralized error toast for 403/404/5xx — fires once a query/mutation
+// finally settles into an error state (after retries), not once per raw HTTP
+// attempt. This used to live in base_api.ts's response interceptor, which
+// runs on every attempt including retries — a single failing query with
+// retry: 2 showed the same toast up to 3 times.
+function handleQueryError(error: unknown) {
+    const status = (error as { status?: number })?.status;
+    if (status === 403 || status === 404 || (status && status >= 500)) {
+        store.dispatch(
+            showToast({
+                message: getErrorMessage(error, 'Something went wrong. Please try again.'),
+                variant: 'error',
+            }),
+        );
+    }
+}
+
 const queryClient = new QueryClient({
+    queryCache: new QueryCache({ onError: handleQueryError }),
+    mutationCache: new MutationCache({ onError: handleQueryError }),
     defaultOptions: {
         queries: {
             staleTime: 1000 * 60 * 5,   // data stays fresh for 5 minutes
             gcTime: 1000 * 60 * 30,     // keep unused data in cache for 30 minutes
-            retry: 2,
+            retry: shouldRetry,
             refetchOnWindowFocus: false, // handled above via AppState
             refetchOnReconnect: true,
         },

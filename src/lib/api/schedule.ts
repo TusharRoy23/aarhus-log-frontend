@@ -51,7 +51,13 @@ export type ScheduleListParams = {
     schedule_type?: ScheduleType;
 };
 
-export type ScheduleType = 'individual' | 'group' | 'all';
+export const ScheduleTypes = {
+    INDIVIDUAL: 'individual',
+    GROUP: 'group',
+    ALL: 'all',
+}
+
+export type ScheduleType = (typeof ScheduleTypes)[keyof typeof ScheduleTypes];
 
 const SCHEDULES_PATH = '/employee/schedules/';
 

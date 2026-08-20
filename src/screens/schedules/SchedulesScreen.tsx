@@ -10,7 +10,7 @@ import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
 import { useAppSelector } from '../../store/hooks';
-import { scheduleApi } from '../../lib/api/schedule';
+import { scheduleApi, ScheduleTypes } from '../../lib/api/schedule';
 import { getApiErrorMessage } from '../../lib/api/base_api';
 import { MyScheduleSection } from './MyScheduleSection';
 import { AllSchedulesSection } from './AllSchedulesSection';
@@ -23,7 +23,7 @@ export function SchedulesScreen() {
   // "My Schedule" and "All Schedules" are backed by separate API calls, not
   // one shared fetch filtered client-side — switching tabs sends a
   // different `schedule_type` and gets its own query-cache entry.
-  const scheduleType = view === 'mine' ? 'individual' : 'all';
+  const scheduleType = view === 'mine' ? ScheduleTypes.INDIVIDUAL : ScheduleTypes.ALL;
   const {
     data: scheduleData,
     isPending: isSchedulesLoading,

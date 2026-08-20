@@ -7,6 +7,8 @@ import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
 import { StatusColors, type ShiftStatus } from '../../theme/status';
+import { Resources } from '../../lib/api/permission';
+import { usePermissionCheck } from '../../store/slices/permissions-slice';
 
 export interface ShiftCardProps {
   name: string;
@@ -32,6 +34,7 @@ export function ShiftCard({
   onEdit,
 }: ShiftCardProps) {
   const statusColor = StatusColors[status];
+  const can = usePermissionCheck();
 
   return (
     <View style={styles.card}>
@@ -65,10 +68,10 @@ export function ShiftCard({
         <Pressable onPress={onDetails} hitSlop={8}>
           <Text style={styles.detailsLink}>Details</Text>
         </Pressable>
-        <Pressable style={styles.editButton} onPress={onEdit}>
+        {can(Resources.SCHEDULE, 'update') && <Pressable style={styles.editButton} onPress={onEdit}>
           <MaterialIcons name="edit" size={16} color={Colors.primary} />
           <Text style={styles.editButtonText}>Edit</Text>
-        </Pressable>
+        </Pressable>}
       </View>
     </View>
   );

@@ -4,6 +4,8 @@ import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Radius } from '../../theme/radius';
 import { Spacing } from '../../theme/spacing';
+import { usePermissionCheck } from '../../store/slices/permissions-slice';
+import type { PermissionActions, Resource } from '../../lib/api/permission';
 
 export interface ButtonProps extends Omit<PressableProps, 'style'> {
   label: string;
@@ -11,6 +13,8 @@ export interface ButtonProps extends Omit<PressableProps, 'style'> {
   loading?: boolean;
   variant?: 'primary' | 'secondary';
   style?: ViewStyle;
+  /** Hides the button entirely when the current user lacks this permission. Omit to always show (normal behavior). */
+  permission?: { resource: Resource; action: keyof PermissionActions };
 }
 
 export function Button({
@@ -20,10 +24,16 @@ export function Button({
   variant = 'primary',
   disabled,
   style,
+  permission,
   ...pressableProps
 }: ButtonProps) {
+  const can = usePermissionCheck();
   const isPrimary = variant === 'primary';
   const isDisabled = disabled || loading;
+
+  if (permission && !can(permission.resource, permission.action)) {
+    return null;
+  }
 
   return (
     <Pressable

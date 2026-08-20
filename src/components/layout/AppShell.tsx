@@ -13,7 +13,9 @@ import { Spacing } from '../../theme/spacing';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
 import { clearAuth } from '../../store/slices/auth-slice';
 import { clearPermissions, usePermissionCheck } from '../../store/slices/permissions-slice';
+import { Resources } from '../../lib/api/permission';
 import { tokenStore } from '../../lib/api/utils';
+import queryClient from '../../lib/query-client';
 
 const WIDE_BREAKPOINT = 768;
 
@@ -64,7 +66,7 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
       key: 'manage-shifts',
       icon: 'calendar-today',
       label: 'Manage Shifts',
-      visible: can('schedule', 'view'),
+      visible: can(Resources.SCHEDULE, 'view'),
       onPress: () => {
         setMenuOpen(false);
         router.push('/shifts');
@@ -74,7 +76,7 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
       key: 'employees',
       icon: 'person-add',
       label: 'Employees',
-      visible: can('employee', 'view'),
+      visible: can(Resources.EMPLOYEE, 'view'),
       onPress: () => {
         setMenuOpen(false);
         router.push('/team');
@@ -84,7 +86,7 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
       key: 'designations',
       icon: 'badge',
       label: 'Designations',
-      visible: can('designation', 'view'),
+      visible: can(Resources.DESIGNATION, 'view'),
       onPress: () => {
         setMenuOpen(false);
         router.push('/designations');
@@ -110,6 +112,12 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
     tokenStore.clear();
     dispatch(clearAuth());
     dispatch(clearPermissions());
+    // The TanStack Query cache is a singleton independent of Redux — it
+    // isn't cleared just because auth/permissions are. Without this, a
+    // different user logging in right after would see the previous
+    // session's still-"fresh" cached data (schedules, employees,
+    // designations, ...) until each query's staleTime happened to expire.
+    queryClient.clear();
     router.replace('/');
   };
 

@@ -9,6 +9,7 @@ import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { designationApi } from '../../lib/api/designation';
+import { Resources } from '../../lib/api/permission';
 import { getApiErrorMessage } from '../../lib/api/base_api';
 
 export function DesignationsScreen() {
@@ -42,6 +43,7 @@ export function DesignationsScreen() {
           label="Add Designation"
           icon={<MaterialIcons name="add" size={20} color={Colors.onPrimary} />}
           onPress={() => router.push('/designation-form')}
+          permission={{ resource: Resources.DESIGNATION, action: 'add' }}
         />
 
         {isPending ? (

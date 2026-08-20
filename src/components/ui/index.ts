@@ -15,5 +15,5 @@ export * from './ManageShiftCard';
 export * from './OtpInput';
 export * from './ActionMenu';
 export * from './EmployeeCard';
-export * from './DesignationCard';
+export * from './designation/DesignationCard';
 export * from './Toast';

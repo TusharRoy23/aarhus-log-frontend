@@ -73,6 +73,9 @@ function AppNavigator() {
         dispatch(clearAuth());
         dispatch(clearPermissions());
         persistor.purge();
+        // Same reasoning as the sign-out/401 paths — the query cache
+        // outlives Redux state on its own.
+        queryClient.clear();
       } else {
         // Refreshes the persisted permission set in the background on
         // every relaunch of an existing session — doesn't block

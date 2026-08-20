@@ -1,10 +1,11 @@
-import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { Colors } from '../../theme/colors';
-import { Typography } from '../../theme/typography';
-import { Spacing } from '../../theme/spacing';
-import { Radius } from '../../theme/radius';
+import { Colors } from '../../../theme/colors';
+import { Typography } from '../../../theme/typography';
+import { Spacing } from '../../../theme/spacing';
+import { Radius } from '../../../theme/radius';
+import { usePermissionCheck } from '../../../store/slices/permissions-slice';
+import { Resources } from '../../../lib/api/permission';
 
 export interface DesignationCardProps {
   name: string;
@@ -15,6 +16,7 @@ export interface DesignationCardProps {
 
 export function DesignationCard({ name, isActive, isOwner, onEdit }: DesignationCardProps) {
   const stripColor = isActive ? '#10b981' : Colors.outline;
+  const can = usePermissionCheck();
 
   return (
     <View style={styles.card}>
@@ -37,10 +39,12 @@ export function DesignationCard({ name, isActive, isOwner, onEdit }: Designation
           </View>
         </View>
 
-        <Pressable style={styles.editButton} onPress={onEdit}>
-          <MaterialIcons name="edit" size={16} color={Colors.primary} />
-          <Text style={styles.editButtonText}>Edit</Text>
-        </Pressable>
+        {can(Resources.DESIGNATION, 'update') && (
+          <Pressable style={styles.editButton} onPress={onEdit}>
+            <MaterialIcons name="edit" size={16} color={Colors.primary} />
+            <Text style={styles.editButtonText}>Edit</Text>
+          </Pressable>
+        )}
       </View>
     </View>
   );

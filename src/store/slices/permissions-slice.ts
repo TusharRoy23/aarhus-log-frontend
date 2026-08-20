@@ -1,5 +1,5 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
-import type { IndividualPermissions, PermissionActions, Permissions } from '../../lib/api/permission';
+import type { IndividualPermissions, PermissionActions, Permissions, Resource } from '../../lib/api/permission';
 import { useAppSelector } from '../hooks';
 
 // Mirrors auth-slice.ts's shape/rationale: a persisted slice populated at
@@ -53,7 +53,7 @@ export default permissionsSlice.reducer;
 // unconditional bypass — an owner sees everything even if a given resource
 // key happens to be missing from `permissions` (the resource keys are
 // explicitly dynamic per the API, not a fixed set).
-export function usePermissionCheck(): (resource: string, action: keyof PermissionActions) => boolean {
+export function usePermissionCheck(): (resource: Resource, action: keyof PermissionActions) => boolean {
     const { isOwner, permissions } = useAppSelector((state) => state.permissions);
     return (resource, action) => isOwner || Boolean(permissions[resource]?.[action]);
 }

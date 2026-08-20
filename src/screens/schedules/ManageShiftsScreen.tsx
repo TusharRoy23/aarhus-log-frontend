@@ -9,9 +9,10 @@ import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
 import { useQuery } from '@tanstack/react-query';
-import { scheduleApi } from '../../lib/api/schedule';
+import { scheduleApi, ScheduleTypes } from '../../lib/api/schedule';
 import { AllSchedulesSection } from './AllSchedulesSection';
 import { getApiErrorMessage } from '../../lib/api/base_api';
+import { Resources } from '../../lib/api/permission';
 
 function notImplemented(label: string) {
   Alert.alert(label, 'Coming soon.');
@@ -42,8 +43,8 @@ export function ManageShiftsScreen() {
     isError: isSchedulesError,
     error: schedulesError,
   } = useQuery({
-    queryKey: ['schedules', dateRange?.from, dateRange?.to],
-    queryFn: () => scheduleApi.list(dateRange ? { from: dateRange.from, to: dateRange.to } : undefined),
+    queryKey: ['schedules', dateRange?.from, dateRange?.to, ScheduleTypes.ALL],
+    queryFn: () => scheduleApi.list({ schedule_type: ScheduleTypes.ALL, from: dateRange?.from, to: dateRange?.to }),
   });
   const schedules = scheduleData?.results ?? [];
 
@@ -85,6 +86,7 @@ export function ManageShiftsScreen() {
           label="New Schedule"
           icon={<MaterialIcons name="add" size={20} color={Colors.onPrimary} />}
           onPress={() => router.push('/create-shift')}
+          permission={{ resource: Resources.SCHEDULE, action: 'add' }}
         />
 
         {/* <SearchField placeholder="Search employees..." value={query} onChangeText={setQuery} /> */}
