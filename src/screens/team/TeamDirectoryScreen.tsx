@@ -85,7 +85,9 @@ export function TeamDirectoryScreen() {
                 onEdit={() => router.push({ pathname: '/employee-form', params: { id: employee.uuid } })}
                 onResendInvite={() => handleResendInvite(employee.email)}
                 onDelete={() => notImplemented('Delete Employee')}
-                onManagePermissions={() => notImplemented('Manage Permissions')}
+                onManagePermissions={() =>
+                  router.push({ pathname: '/employee-permissions', params: { uuid: employee.uuid } })
+                }
               />
             ))}
           </View>

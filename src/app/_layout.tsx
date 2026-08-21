@@ -101,6 +101,7 @@ function AppNavigator() {
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="create-shift" options={{ presentation: 'modal' }} />
         <Stack.Screen name="employee-form" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="employee-permissions" options={{ presentation: 'modal' }} />
         <Stack.Screen name="designation-form" options={{ presentation: 'modal' }} />
         <Stack.Screen name="designation-permissions" options={{ presentation: 'modal' }} />
       </Stack>

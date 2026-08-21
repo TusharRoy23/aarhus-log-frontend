@@ -60,24 +60,44 @@ export type PermissionModel = {
     actions: PermissionAction[];
 };
 
-export type DesignationPermissionsResponse = {
+// Shared shape for both the designation- and employee-level permission
+// matrices below — confirmed identical payload/response on both endpoints,
+// they only differ in URL (which resource's permissions are being read/set).
+export type PermissionMatrixResponse = {
     results: PermissionModel[];
     count: number;
 };
 
-export type UpdateDesignationPermissionsPayload = {
+export type UpdatePermissionMatrixPayload = {
     permissions: string[];
 };
 
 const designationPermissionsPath = (uuid: string) => `/employee/designations/${uuid}/permissions/`;
 
 export const designationPermissionApi = {
-    get: async (uuid: string): Promise<DesignationPermissionsResponse> => {
-        const response = await baseApi.get<DesignationPermissionsResponse>(apiPath(designationPermissionsPath(uuid)));
+    get: async (uuid: string): Promise<PermissionMatrixResponse> => {
+        const response = await baseApi.get<PermissionMatrixResponse>(apiPath(designationPermissionsPath(uuid)));
         return response.data;
     },
-    update: async (uuid: string, payload: UpdateDesignationPermissionsPayload): Promise<string> => {
+    // Response is just a plain confirmation string ("Successfully updated"),
+    // not the updated record — callers need to reconstruct the new state
+    // from what they know they just sent rather than from this response.
+    update: async (uuid: string, payload: UpdatePermissionMatrixPayload): Promise<string> => {
         const response = await baseApi.put<string>(apiPath(designationPermissionsPath(uuid)), payload);
+        return response.data;
+    },
+};
+
+const employeePermissionsPath = (uuid: string) => `/employee/${uuid}/permissions/`;
+
+export const employeePermissionApi = {
+    get: async (uuid: string): Promise<PermissionMatrixResponse> => {
+        const response = await baseApi.get<PermissionMatrixResponse>(apiPath(employeePermissionsPath(uuid)));
+        return response.data;
+    },
+    // Same "response is just a confirmation string" note as designationPermissionApi.update.
+    update: async (uuid: string, payload: UpdatePermissionMatrixPayload): Promise<string> => {
+        const response = await baseApi.put<string>(apiPath(employeePermissionsPath(uuid)), payload);
         return response.data;
     },
 };
