@@ -57,6 +57,19 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
 
   const userName = user?.name || user?.username || 'Account';
 
+  // `router.push` always pushes a new screen instance onto the stack, even
+  // if you're already on that exact route — tapping a Menu link for the
+  // page you're currently viewing was silently re-navigating (and, since
+  // these push a fresh instance, remounting the screen and duplicating the
+  // stack entry). Guard every Menu-link navigation through this instead of
+  // calling `router.push` directly.
+  const navigateTo = (route: string) => {
+    setMenuOpen(false);
+    if (pathname !== route) {
+      router.push(route);
+    }
+  };
+
   // Add a new Menu item by appending one entry here — `visible` gates it on
   // a permission via `can(resource, action)`, called inline (a plain
   // function, not a hook, so it's safe to call however many times here).
@@ -68,30 +81,21 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
       icon: 'calendar-today',
       label: 'Manage Schedules',
       visible: can(Resources.SCHEDULE, 'view'),
-      onPress: () => {
-        setMenuOpen(false);
-        router.push('/shifts');
-      },
+      onPress: () => navigateTo('/shifts'),
     },
     {
       key: 'employees',
       icon: 'person-add',
       label: 'Employees',
       visible: can(Resources.EMPLOYEE, 'view'),
-      onPress: () => {
-        setMenuOpen(false);
-        router.push('/team');
-      },
+      onPress: () => navigateTo('/team'),
     },
     {
       key: 'designations',
       icon: 'badge',
       label: 'Designations',
       visible: can(Resources.DESIGNATION, 'view'),
-      onPress: () => {
-        setMenuOpen(false);
-        router.push('/designations');
-      },
+      onPress: () => navigateTo('/designations'),
     },
     {
       key: 'shift-history',
@@ -100,10 +104,7 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
       // No permission gate, unlike the links above — viewing your own past
       // shifts isn't an admin capability, it's personal data, same "same
       // for everyone" treatment as the homepage itself.
-      onPress: () => {
-        setMenuOpen(false);
-        router.push('/shift-history');
-      },
+      onPress: () => navigateTo('/shift-history'),
     },
     {
       key: 'team-settings',
@@ -140,11 +141,13 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
     if (key === 'menu') setMenuOpen(true);
     else if (key === 'profile') setProfileOpen(true);
     else if (key === 'notifications') notImplemented('Notifications');
-    else {
-      const route = Object.entries(NAV_KEY_BY_ROUTE).find(([, navKey]) => navKey === key)?.[0];
-      if (route) router.back();
-    }
-    // 'schedule' is the only real screen so far — nothing to do.
+    // 'schedule' is the only remaining real tab — used to call `router.back()`
+    // here, assuming the current screen was always reached by pushing on top
+    // of `/schedules`. That assumption doesn't always hold (e.g. no prior
+    // stack entry to pop), which threw "The action 'GO_BACK' was not handled
+    // by any navigator." Navigate to the actual destination instead, same
+    // guarded helper the Menu links use.
+    else if (key === 'schedule') navigateTo('/schedules');
   };
 
   return (
