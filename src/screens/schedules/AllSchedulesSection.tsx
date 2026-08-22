@@ -115,14 +115,14 @@ export function AllSchedulesSection({ schedules, dateRange }: AllSchedulesSectio
               statusLabel={capitalize(shift.status)}
               timeRange={formatTimeRange(shift.start_time, shift.end_time)}
               location={locationLabel(shift.work_location)}
-              onDetails={() => notImplemented('Shift Details')}
+              onDetails={() => notImplemented('Schedule Details')}
               onEdit={() => router.push({ pathname: '/create-shift', params: { uuid: shift.uuid } })}
             />
           ))}
         </View>
       ) : (
         <View style={styles.emptyCard}>
-          <Text style={styles.emptyText}>No shifts scheduled for this day.</Text>
+          <Text style={styles.emptyText}>No schedules for this day.</Text>
         </View>
       )}
     </View>

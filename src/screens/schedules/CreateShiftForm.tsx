@@ -83,10 +83,10 @@ export function CreateShiftForm({
   return (
     <View style={styles.card}>
       <View style={styles.header}>
-        <Text style={styles.title}>{isEditing ? 'Edit Shift' : 'Create New Shift'}</Text>
+        <Text style={styles.title}>{isEditing ? 'Edit Schedule' : 'Create New Schedule'}</Text>
         <Text style={styles.subtitle}>
           {isEditing
-            ? "Update this shift's details."
+            ? "Update this schedule's details."
             : 'Schedule staffing requirements and employee assignments.'}
         </Text>
       </View>

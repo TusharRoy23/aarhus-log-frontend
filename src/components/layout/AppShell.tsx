@@ -28,6 +28,7 @@ const NAV_KEY_BY_ROUTE: Record<string, BottomNavKey> = {
   '/shifts': 'menu',
   '/team': 'menu',
   '/designations': 'menu',
+  '/shift-history': 'menu',
 };
 
 export interface AppShellProps {
@@ -90,6 +91,18 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
       onPress: () => {
         setMenuOpen(false);
         router.push('/designations');
+      },
+    },
+    {
+      key: 'shift-history',
+      icon: 'history',
+      label: 'My Schedules',
+      // No permission gate, unlike the links above — viewing your own past
+      // shifts isn't an admin capability, it's personal data, same "same
+      // for everyone" treatment as the homepage itself.
+      onPress: () => {
+        setMenuOpen(false);
+        router.push('/shift-history');
       },
     },
     {

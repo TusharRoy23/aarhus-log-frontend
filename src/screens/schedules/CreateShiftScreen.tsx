@@ -85,7 +85,7 @@ export function CreateShiftScreen() {
       if (isEditing) {
         queryClient.setQueryData(['schedule', uuid], saved);
       }
-      Alert.alert(isEditing ? 'Shift updated' : 'Shift saved', isEditing ? 'The shift has been updated.' : 'The shift has been created.');
+      Alert.alert(isEditing ? 'Schedule updated' : 'Schedule saved', isEditing ? 'The schedule has been updated.' : 'The schedule has been created.');
       router.back();
     },
   });
