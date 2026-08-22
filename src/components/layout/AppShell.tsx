@@ -65,7 +65,7 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
     {
       key: 'manage-shifts',
       icon: 'calendar-today',
-      label: 'Manage Shifts',
+      label: 'Manage Schedules',
       visible: can(Resources.SCHEDULE, 'view'),
       onPress: () => {
         setMenuOpen(false);

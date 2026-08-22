@@ -78,7 +78,7 @@ export function ManageShiftsScreen() {
     <AppShell>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.header}>
-          <Text style={styles.title}>Manage Shifts</Text>
+          <Text style={styles.title}>Manage Schedules</Text>
           <Text style={styles.subtitle}>Review and modify employee schedules.</Text>
         </View>
 
