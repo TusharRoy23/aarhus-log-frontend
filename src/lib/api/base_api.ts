@@ -1,5 +1,4 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
-import { router } from 'expo-router';
 import { isTokenValid, refreshAccessToken } from './refresh_token_strategy';
 import { tokenStore } from './utils';
 import { store, persistor } from '../../store/store';
@@ -64,15 +63,11 @@ baseApi.interceptors.response.use(
         const status = error.response?.status;
 
         if (status === 401) {
-            // Session is genuinely dead (bad/expired token rejected outright,
-            // not just proactively refreshed) — clear everything and bounce
-            // back to the login screen.
             tokenStore.clear();
             store.dispatch(clearAuth());
             store.dispatch(clearPermissions());
             persistor.purge();
             queryClient.clear();
-            router.replace('/');
         }
 
         return Promise.reject(Object.assign({}, error.response?.data, { status }));

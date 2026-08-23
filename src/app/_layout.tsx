@@ -51,7 +51,7 @@ function useProtectedRoute(isBootstrapping: boolean) {
     if (!isAuthenticated && !isPublic) {
       router.replace('/');
     } else if (isAuthenticated && pathname === '/') {
-      router.replace('/schedules');
+      router.replace('/home');
     }
   }, [isBootstrapping, isAuthenticated, pathname]);
 }

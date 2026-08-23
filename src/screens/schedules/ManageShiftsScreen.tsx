@@ -29,7 +29,7 @@ export function ManageShiftsScreen() {
   const router = useRouter();
 
   // The Date Range filter lives only on this screen — `AllSchedulesSection`
-  // on the SchedulesScreen "homepage" tab has no range picker and always
+  // on the HomeScreen "homepage" tab has no range picker and always
   // shows the unbounded, today-forward default.
   const [dateRange, setDateRange] = useState<DateRange | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);

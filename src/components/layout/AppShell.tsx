@@ -24,7 +24,7 @@ const WIDE_BREAKPOINT = 768;
 // active tab reflects the section you're in, not literally which route is
 // mounted. Add an entry here whenever a new screen is wired up.
 const NAV_KEY_BY_ROUTE: Record<string, BottomNavKey> = {
-  '/schedules': 'schedule',
+  '/home': 'home',
   '/shifts': 'menu',
   '/team': 'menu',
   '/designations': 'menu',
@@ -132,7 +132,11 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
     // session's still-"fresh" cached data (schedules, employees,
     // designations, ...) until each query's staleTime happened to expire.
     queryClient.clear();
-    router.replace('/');
+    // No `router.replace('/')` here — `_layout.tsx`'s `useProtectedRoute`
+    // already reacts to `isAuthenticated` flipping false (from
+    // `clearAuth()` above) and redirects itself. Calling it here too raced
+    // with that reactive redirect, same double-navigation bug fixed in
+    // base_api.ts's 401 handler.
   };
 
   const handleSwitchWorkspace = () => notImplemented('Switch Workspace');
@@ -143,11 +147,11 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
     else if (key === 'notifications') notImplemented('Notifications');
     // 'schedule' is the only remaining real tab — used to call `router.back()`
     // here, assuming the current screen was always reached by pushing on top
-    // of `/schedules`. That assumption doesn't always hold (e.g. no prior
+    // of `/home`. That assumption doesn't always hold (e.g. no prior
     // stack entry to pop), which threw "The action 'GO_BACK' was not handled
     // by any navigator." Navigate to the actual destination instead, same
     // guarded helper the Menu links use.
-    else if (key === 'schedule') navigateTo('/schedules');
+    else if (key === 'home') navigateTo('/home');
   };
 
   return (

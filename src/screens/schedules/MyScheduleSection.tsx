@@ -2,7 +2,7 @@ import { AllSchedulesSection } from './AllSchedulesSection';
 import type { Schedule } from '../../lib/api/schedule';
 
 export interface MyScheduleSectionProps {
-  /** Already scoped to "mine" by the parent (SchedulesScreen), which also
+  /** Already scoped to "mine" by the parent (HomeScreen), which also
    * derives Current Shift from the same data. */
   schedules: Schedule[];
 }

@@ -1,5 +1,4 @@
 import { useMutation } from '@tanstack/react-query';
-import { useRouter } from 'expo-router';
 import { authApi } from '../lib/api/auth';
 import { tokenStore } from '../lib/api/utils';
 import { useAppDispatch } from '../store/hooks';
@@ -14,7 +13,6 @@ import { fetchAndStorePermissions } from '../store/permissions-actions';
 // single-org path never sets it), and land on the post-login screen.
 export function useLoginMutation() {
   const dispatch = useAppDispatch();
-  const router = useRouter();
 
   return useMutation({
     mutationFn: authApi.login,
@@ -25,7 +23,12 @@ export function useLoginMutation() {
       // Fire-and-forget — menu visibility shouldn't block landing on the
       // post-login screen; it fills in the moment the fetch resolves.
       fetchAndStorePermissions(dispatch);
-      router.replace('/schedules');
+      // No `router.replace('/home')` here — `_layout.tsx`'s
+      // `useProtectedRoute` already reacts to `isAuthenticated` flipping
+      // true while sitting on `/` (from `setAuth()` above) and redirects to
+      // `/home` itself. Calling it here too raced with that reactive
+      // redirect — same double-navigation bug fixed on the sign-out/401
+      // paths in AppShell.tsx/base_api.ts.
     },
   });
 }

@@ -32,7 +32,7 @@ function getGreeting(): string {
 // tab switch since it's the one piece of genuinely "homepage" content;
 // "My Schedule"/"People on the Floor" are lighter, tab-switched detail below
 // it rather than the whole page's structure.
-export function SchedulesScreen() {
+export function HomeScreen() {
   const [view, setView] = useState<'mine' | 'floor'>('mine');
   const user = useAppSelector((state) => state.auth.user);
   const currentUserEmail = user?.email;
