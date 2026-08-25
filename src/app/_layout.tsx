@@ -27,10 +27,9 @@ import { isTokenValid, refreshAccessToken } from '../lib/api/refresh_token_strat
 
 // Routes reachable without a valid session. Everything else redirects to
 // Login when unauthenticated — new authenticated screens are covered
-// automatically, no per-screen enumeration needed. `/sign-up`, `/verify-otp`
-// and `/select-organization` already have their own pending-state guards,
-// so they're left out of the "already authenticated" redirect below too.
+// automatically, no per-screen enumeration needed.
 const PUBLIC_ROUTES = new Set(['/', '/sign-up', '/verify-otp', '/select-organization']);
+const AUTH_REDIRECT_SOURCES = new Set(['/', '/select-organization']);
 
 function LoadingScreen() {
   return (
@@ -50,7 +49,7 @@ function useProtectedRoute(isBootstrapping: boolean) {
     const isPublic = PUBLIC_ROUTES.has(pathname);
     if (!isAuthenticated && !isPublic) {
       router.replace('/');
-    } else if (isAuthenticated && pathname === '/') {
+    } else if (isAuthenticated && AUTH_REDIRECT_SOURCES.has(pathname)) {
       router.replace('/home');
     }
   }, [isBootstrapping, isAuthenticated, pathname]);
