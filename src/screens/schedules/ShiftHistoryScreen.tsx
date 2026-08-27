@@ -8,8 +8,7 @@ import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
-import { useAppSelector } from '../../store/hooks';
-import { scheduleApi, ScheduleTypes } from '../../lib/api/schedule';
+import { scheduleApi } from '../../lib/api/schedule';
 import { getApiErrorMessage } from '../../lib/api/base_api';
 import { formatDateLabel, formatTimeRange, locationLabel, capitalize } from './schedule-format';
 
@@ -17,51 +16,52 @@ const PAGE_SIZE = 10;
 
 type DateRange = { from: string; to: string };
 
-function localDateKey(date: Date): string {
-  return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
-}
-
 function formatRangeLabel(range: DateRange): string {
   const format = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   return `${format(range.from)} - ${format(range.to)}`;
 }
 
+// "in_progress" -> "In progress" — capitalize() alone only fixes the first
+// letter, leaving the underscore; attendance_status values are snake_case.
+function formatAttendanceStatus(status: string): string {
+  return capitalize(status.replace(/_/g, ' '));
+}
+
 export function ShiftHistoryScreen() {
-  const currentUserEmail = useAppSelector((state) => state.auth.user?.email);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
-  // Filtered client-side, same as the "past" derivation below — the query
-  // already fetches this user's whole schedule history unbounded, so a
-  // date range here doesn't need a new request, just a narrower filter over
-  // data that's already in hand.
   const [dateRange, setDateRange] = useState<DateRange | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [draftFrom, setDraftFrom] = useState('');
   const [draftTo, setDraftTo] = useState('');
   const [rangeError, setRangeError] = useState<string | undefined>();
 
-  // Same cache the homepage's "My Shifts" tab already populates — if the
-  // user already visited it this session, this renders instantly from
-  // cache instead of firing a second request.
+  // Dedicated endpoint (GET /employee/schedule-history/), already scoped to
+  // the logged-in employee and already the right shape for "history" (past
+  // attendance records, not the same Schedule[]/ScheduleListResponse shape
+  // the homepage's ['schedules', 'individual'] query returns) — this MUST
+  // be its own query key. It used to (wrongly) reuse that homepage key
+  // while calling a completely different endpoint, so the two screens'
+  // queries clobbered each other's cache entry with incompatible shapes.
+  // `dateRange` is part of the key (not just the queryFn) so changing it
+  // actually triggers a refetch instead of silently serving the old range's
+  // cached result.
   const { data, isPending, isError, error } = useQuery({
-    queryKey: ['schedules', ScheduleTypes.INDIVIDUAL],
-    queryFn: () => scheduleApi.list({ schedule_type: ScheduleTypes.INDIVIDUAL }),
+    queryKey: ['schedule-history', dateRange?.from, dateRange?.to],
+    queryFn: () => scheduleApi.history({ from: dateRange?.from, to: dateRange?.to }),
   });
 
+  // The server already scopes this to history and to the requested date
+  // range — no client-side re-filtering needed, just a stable sort (newest
+  // first). `start_time` is nullable on this type, so null-safe compare,
+  // pushing entries with no start_time to the end rather than crashing.
   const pastShifts = useMemo(() => {
-    const now = Date.now();
-    return (data?.results ?? [])
-      .filter((s) => {
-        if (!currentUserEmail || s.employee.email !== currentUserEmail) return false;
-        if (new Date(s.end_time).getTime() >= now) return false;
-        if (dateRange) {
-          const key = localDateKey(new Date(s.start_time));
-          if (key < dateRange.from || key > dateRange.to) return false;
-        }
-        return true;
-      })
-      .sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime());
-  }, [data, currentUserEmail, dateRange]);
+    return [...(data?.results ?? [])].sort((a, b) => {
+      const aTime = a.start_time ? new Date(a.start_time).getTime() : -Infinity;
+      const bTime = b.start_time ? new Date(b.start_time).getTime() : -Infinity;
+      return bTime - aTime;
+    });
+  }, [data]);
 
   const visibleShifts = pastShifts.slice(0, visibleCount);
   const hasMore = visibleCount < pastShifts.length;
@@ -132,18 +132,18 @@ export function ShiftHistoryScreen() {
 
                 <View style={styles.itemBody}>
                   <View style={styles.itemTitleRow}>
-                    <Text style={styles.itemDate}>{formatDateLabel(shift.start_time)}</Text>
+                    <Text style={styles.itemDate}>{(shift?.start_time) && formatDateLabel(shift?.start_time)}</Text>
                     <View style={styles.itemDivider} />
                     <Text style={styles.itemLocation}>{locationLabel(shift.work_location)}</Text>
                   </View>
 
                   <View style={styles.timeRow}>
                     <MaterialIcons name="schedule" size={16} color={Colors.onSurfaceVariant} />
-                    <Text style={styles.itemTime}>{formatTimeRange(shift.start_time, shift.end_time)}</Text>
+                    <Text style={styles.itemTime}>{(shift?.start_time && shift?.end_time) && formatTimeRange(shift?.start_time, shift?.end_time)}</Text>
                   </View>
 
                   <View style={styles.statusBadge}>
-                    <Text style={styles.statusBadgeText}>{capitalize(shift.status)}</Text>
+                    <Text style={styles.statusBadgeText}>{formatAttendanceStatus(shift.attendance_status)}</Text>
                   </View>
                 </View>
               </View>

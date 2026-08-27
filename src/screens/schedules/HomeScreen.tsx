@@ -1,18 +1,26 @@
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { MaterialIcons } from '@expo/vector-icons';
 import { AppShell } from '../../components/layout/AppShell';
-import { SegmentedControl } from '../../components/ui';
+import { Button, SegmentedControl } from '../../components/ui';
 import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
 import { useAppSelector } from '../../store/hooks';
-import { scheduleApi, ScheduleTypes } from '../../lib/api/schedule';
+import { scheduleApi, ScheduleTypes, type StartSchedulePayload } from '../../lib/api/schedule';
 import { getApiErrorMessage } from '../../lib/api/base_api';
 import { CurrentShiftCard } from './CurrentShiftCard';
 import { MyScheduleSection } from './MyScheduleSection';
 import { PeopleOnFloorSection } from './PeopleOnFloorSection';
+
+// An assigned shift starts showing here (with a "Start Shift" action) once
+// it's within this many hours of its start_time — before that it's just
+// part of the normal Upcoming list, not "current" yet. Also covers a shift
+// whose start_time has already passed but hasn't been checked into yet
+// (see `isDueSoon` below) — the window is measured from "now" either way.
+const STARTING_SOON_WINDOW_MS = 2 * 60 * 60 * 1000;
 
 function todayDateString(): string {
   const d = new Date();
@@ -41,9 +49,10 @@ export function HomeScreen() {
     () => new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }),
     [],
   );
+  const queryClient = useQueryClient();
 
   // Always fetched, regardless of which tab is active — it's what powers
-  // the always-visible Current Schedule as well as the "My Schedule" tab.
+  // the "My Schedule" tab and the assigned-shift-due-soon check below.
   const {
     data: mineData,
     isPending: isMinePending,
@@ -57,10 +66,58 @@ export function HomeScreen() {
     () => (currentUserEmail ? (mineData?.results ?? []).filter((s) => s.employee.email === currentUserEmail) : []),
     [mineData, currentUserEmail],
   );
-  const currentShift = useMemo(() => {
+
+  // The real source of truth for "is a shift running right now" — NOT a
+  // wall-clock comparison against an assigned schedule's start/end times.
+  // The countdown only ever starts once the user presses Start (calling
+  // scheduleApi.start below), never automatically just because the current
+  // time falls inside a scheduled window.
+  const activeQuery = useQuery({
+    queryKey: ['active-schedule'],
+    queryFn: scheduleApi.getActive,
+    // A 404 here just means "nobody has checked in" — a normal state, not
+    // a failure worth alarming the user about via the global error toast.
+    meta: { suppressToastForStatuses: [404] },
+  });
+  // No active schedule is a normal state, not an error — the endpoint 404s
+  // (or could plausibly return a null body) when nobody has checked in.
+  // Anything else is a real fetch failure.
+  const activeFetchFailed = activeQuery.isError && (activeQuery.error as { status?: number })?.status !== 404;
+  const active = activeQuery.data ?? undefined;
+  // A `stop()` response is still an ActiveScheduleResponse (the now-ended
+  // record) — `end_time` is what actually distinguishes "currently running"
+  // from "just finished".
+  const isActiveOngoing = !!active && active.end_time === null;
+
+  // An *assigned* schedule that's due soon: starts within
+  // STARTING_SOON_WINDOW_MS, OR its start_time already passed but it hasn't
+  // ended yet and nobody's checked in (`isActiveOngoing` is false) — either
+  // way, offer to start it. Only relevant when nothing is already running.
+  const dueShift = useMemo(() => {
+    if (isActiveOngoing) return undefined;
     const now = Date.now();
-    return mySchedules.find((s) => new Date(s.start_time).getTime() <= now && now <= new Date(s.end_time).getTime());
-  }, [mySchedules]);
+    return mySchedules
+      .filter((s) => {
+        const end = new Date(s.end_time).getTime();
+        const startsInMs = new Date(s.start_time).getTime() - now;
+        return end > now && startsInMs <= STARTING_SOON_WINDOW_MS;
+      })
+      .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())[0];
+  }, [mySchedules, isActiveOngoing]);
+
+  const startMutation = useMutation({
+    mutationFn: (payload: StartSchedulePayload) => scheduleApi.start(payload),
+    onSuccess: (data) => {
+      console.log('data: ', data);
+      queryClient.setQueryData(['active-schedule'], data);
+    },
+  });
+  const stopMutation = useMutation({
+    mutationFn: () => scheduleApi.stop(),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['active-schedule'], data);
+    },
+  });
 
   // Today's whole-team roster — only fetched once "People on the Floor" is
   // actually opened, and scoped to today only. This is a homepage glance,
@@ -92,15 +149,40 @@ export function HomeScreen() {
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Current Schedule</Text>
-          {isMinePending ? (
+          {isMinePending || activeQuery.isPending ? (
             <ActivityIndicator color={Colors.primary} style={styles.loading} />
-          ) : isMineError ? (
-            <Text style={styles.errorText}>{getApiErrorMessage(mineError, 'Failed to load your schedule.')}</Text>
-          ) : currentShift ? (
-            <CurrentShiftCard shift={currentShift} />
+          ) : isMineError || activeFetchFailed ? (
+            <Text style={styles.errorText}>
+              {getApiErrorMessage(isMineError ? mineError : activeQuery.error, 'Failed to load your schedule.')}
+            </Text>
+          ) : isActiveOngoing && active ? (
+            <CurrentShiftCard
+              mode="in-progress"
+              active={active}
+              onEnd={() => stopMutation.mutate()}
+              isEnding={stopMutation.isPending}
+            />
+          ) : dueShift ? (
+            <CurrentShiftCard
+              mode="starting-soon"
+              shift={dueShift}
+              onStart={() => startMutation.mutate({ schedule_uuid: dueShift.uuid })}
+              isStarting={startMutation.isPending}
+            />
           ) : (
             <View style={styles.emptyCard}>
-              <Text style={styles.emptyText}>No schedule in progress right now.</Text>
+              <Text style={styles.emptyText}>No schedule assigned right now.</Text>
+              {/* "Open shift" — no assigned schedule at all, so let the
+                  employee start ad-hoc work instead of just showing an
+                  empty state. Distinct from "Start Shift" above, which
+                  checks in to an already-assigned schedule. */}
+              <Button
+                label="Start New Shift"
+                icon={<MaterialIcons name="add-circle-outline" size={18} color={Colors.onPrimary} />}
+                onPress={() => startMutation.mutate({})}
+                loading={startMutation.isPending}
+                style={styles.startNewShiftButton}
+              />
             </View>
           )}
         </View>
@@ -186,5 +268,8 @@ const styles = StyleSheet.create({
   emptyText: {
     ...Typography.bodyMd,
     color: Colors.onSurfaceVariant,
+  },
+  startNewShiftButton: {
+    marginTop: Spacing.unit * 4,
   },
 });

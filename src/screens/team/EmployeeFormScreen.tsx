@@ -12,11 +12,12 @@ import { Radius } from '../../theme/radius';
 import {
   employeeApi,
   type CreateEmployeePayload,
-  type EmployeeListResponse,
+  type Employee,
   type UpdateEmployeePayload,
 } from '../../lib/api/employee';
 import { designationApi } from '../../lib/api/designation';
 import { getApiErrorMessage } from '../../lib/api/base_api';
+import type { PaginatedResponse } from '../../constants/types';
 
 export function EmployeeFormScreen() {
   const router = useRouter();
@@ -46,10 +47,8 @@ export function EmployeeFormScreen() {
   const createMutation = useMutation({
     mutationFn: employeeApi.create,
     onSuccess: (created) => {
-      // The API already hands back the full created record — prepend it to
-      // the cached list directly instead of refetching.
-      queryClient.setQueryData<EmployeeListResponse>(['employees'], (old) =>
-        old ? { results: [created, ...old.results], count: old.count + 1 } : old,
+      queryClient.setQueryData<PaginatedResponse<Employee>>(['employees'], (old) =>
+        old ? { ...old, results: [created, ...old.results], count: old.count + 1 } : old,
       );
       router.back();
     },
@@ -58,8 +57,7 @@ export function EmployeeFormScreen() {
   const updateMutation = useMutation({
     mutationFn: (payload: UpdateEmployeePayload) => employeeApi.update(existing!.uuid, payload),
     onSuccess: (updated) => {
-      // Same idea: swap just this record in place using the API's response.
-      queryClient.setQueryData<EmployeeListResponse>(['employees'], (old) =>
+      queryClient.setQueryData<PaginatedResponse<Employee>>(['employees'], (old) =>
         old ? { ...old, results: old.results.map((e) => (e.uuid === updated.uuid ? updated : e)) } : old,
       );
       router.back();

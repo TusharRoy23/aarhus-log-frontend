@@ -1,3 +1,4 @@
+import { PaginatedResponse } from '../../constants/types';
 import baseApi from './base_api';
 import { Designation } from './designation';
 import { apiPath } from './utils';
@@ -17,11 +18,6 @@ export type Employee = {
     updated_at: string;
 };
 
-export type EmployeeListResponse = {
-    results: Employee[];
-    count: number;
-};
-
 export type CreateEmployeePayload = {
     email: string;
     first_name: string;
@@ -38,8 +34,8 @@ export type UpdateEmployeePayload = CreateEmployeePayload & {
 const EMPLOYEES_PATH = '/employee/';
 
 export const employeeApi = {
-    list: async (): Promise<EmployeeListResponse> => {
-        const response = await baseApi.get<EmployeeListResponse>(apiPath(EMPLOYEES_PATH));
+    list: async (): Promise<PaginatedResponse<Employee>> => {
+        const response = await baseApi.get<PaginatedResponse<Employee>>(apiPath(EMPLOYEES_PATH));
         return response.data;
     },
     create: async (payload: CreateEmployeePayload): Promise<Employee> => {

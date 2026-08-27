@@ -37,7 +37,8 @@ function shouldRetry(failureCount: number, error: unknown): boolean {
 // attempt. This used to live in base_api.ts's response interceptor, which
 // runs on every attempt including retries — a single failing query with
 // retry: 2 showed the same toast up to 3 times.
-function handleQueryError(error: unknown) {
+//
+function dispatchErrorToast(error: unknown) {
     const status = (error as { status?: number })?.status;
     if (status === 403 || status === 404 || (status && status >= 500)) {
         store.dispatch(
@@ -49,9 +50,27 @@ function handleQueryError(error: unknown) {
     }
 }
 
+// Some 404s are an expected, normal query result rather than a real error —
+// e.g. GET /employee/active-schedule/ 404ing just means "nobody has checked
+// in", not a failure worth alarming the user about. A query opts out of the
+// toast for specific statuses via `useQuery({ meta: { suppressToastForStatuses: [404] } })`.
+// (Separate from `handleMutationError` below since QueryCache/MutationCache's
+// onError callbacks have incompatible second-argument types — a Query vs.
+// the mutation's variables — so one shared function can't type-check both.)
+function handleQueryError(error: unknown, query: { meta?: Record<string, unknown> }) {
+    const status = (error as { status?: number })?.status;
+    const suppressed = (query.meta?.suppressToastForStatuses as number[] | undefined) ?? [];
+    if (status && suppressed.includes(status)) return;
+    dispatchErrorToast(error);
+}
+
+function handleMutationError(error: unknown) {
+    dispatchErrorToast(error);
+}
+
 const queryClient = new QueryClient({
     queryCache: new QueryCache({ onError: handleQueryError }),
-    mutationCache: new MutationCache({ onError: handleQueryError }),
+    mutationCache: new MutationCache({ onError: handleMutationError }),
     defaultOptions: {
         queries: {
             staleTime: 1000 * 60 * 5,   // data stays fresh for 5 minutes

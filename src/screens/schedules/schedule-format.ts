@@ -29,6 +29,14 @@ export function formatTimeRange(startIso: string, endIso: string): string {
   return `${formatDayMonth(start)} ${formatTime(start)} - ${formatDayMonth(end)} ${formatTime(end)}`;
 }
 
+// For an active (still-running, no end_time yet) schedule — same
+// day-then-month + time shape as formatTimeRange's individual halves, just
+// for a single open-ended timestamp instead of a start/end pair.
+export function formatStartedAt(startIso: string): string {
+  const start = new Date(startIso);
+  return `Started ${formatDayMonth(start)} ${formatTime(start)}`;
+}
+
 export function isSameDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }

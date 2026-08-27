@@ -51,6 +51,55 @@ export type ScheduleListParams = {
     schedule_type?: ScheduleType;
 };
 
+export type StartSchedulePayload = {
+    schedule_uuid?: string;
+}
+
+export type ActiveScheduleResponse = {
+    uuid: string;
+    employee: ScheduleEmployee;
+    covering_for: ScheduleEmployee | null;
+    schedule: Schedule | null;
+    started_via: 'qr' | 'manual';
+    start_time: string;
+    end_time: string | null;
+    expected_end_time: string | null;
+    time_spent: number;
+    break_time: string | null;
+    remarks: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export type ScheduleHistoryParams = {
+    /** 'YYYY-MM-DD' */
+    from?: string;
+    /** 'YYYY-MM-DD' */
+    to?: string;
+};
+
+export type AttendanceStatus = "incomplete" | "completed" | "in_progress";
+export type ScheduleStatus = "pending" | "confirmed" | "declined"
+
+export type ScheduleHistory = {
+    uuid: string;
+    attendance_status: AttendanceStatus;
+    schedule_status: ScheduleStatus | null;
+    schedule_uuid: string | null;
+    is_independent: boolean;
+    start_time: string | null;
+    end_time: string | null;
+    break_time: string | null;
+    employee_log_uuid: string | null;
+    work_location: WorkLocation | null;
+    covering_for: ScheduleEmployee | null;
+}
+
+export type ScheduleHistoryResponse = {
+    results: ScheduleHistory[];
+    count: number;
+}
+
 export const ScheduleTypes = {
     INDIVIDUAL: 'individual',
     GROUP: 'group',
@@ -81,4 +130,20 @@ export const scheduleApi = {
     delete: async (uuid: string): Promise<void> => {
         await baseApi.delete(apiPath(`${SCHEDULES_PATH}${uuid}/`));
     },
+    start: async (payload: StartSchedulePayload): Promise<ActiveScheduleResponse> => {
+        const response = await baseApi.post(apiPath(`/employee/start-schedule/`), payload);
+        return response.data;
+    },
+    stop: async (): Promise<ActiveScheduleResponse> => {
+        const response = await baseApi.post(apiPath(`/employee/stop-schedule/`));
+        return response.data;
+    },
+    getActive: async (): Promise<ActiveScheduleResponse> => {
+        const response = await baseApi.get(apiPath(`/employee/active-schedule/`));
+        return response.data;
+    },
+    history: async (params?: ScheduleHistoryParams): Promise<ScheduleHistoryResponse> => {
+        const response = await baseApi.get<ScheduleHistoryResponse>(apiPath(`/employee/schedule-history/`), { params });
+        return response.data;
+    }
 };
