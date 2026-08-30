@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { Button, DateTimeField, SelectField, TextField, type SelectFieldOption } from '../../components/ui';
+import { Button, DateTimeField, SelectField, TextField, type SelectFieldOption, Checkbox } from '../../components/ui';
 import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
@@ -13,6 +13,7 @@ export type CreateShiftFormValues = {
   employeeUuid: string;
   workLocationUuid: string;
   breakMinutes: string;
+  is_scannable: boolean;
 };
 
 const initialFormState: CreateShiftFormValues = {
@@ -21,6 +22,7 @@ const initialFormState: CreateShiftFormValues = {
   employeeUuid: '',
   workLocationUuid: '',
   breakMinutes: '',
+  is_scannable: false,
 };
 
 export interface CreateShiftFormProps {
@@ -148,6 +150,11 @@ export function CreateShiftForm({
           rightElement={<Text style={styles.unitLabel}>min</Text>}
         />
 
+        <View style={styles.scannableRow}>
+          <Checkbox checked={form.is_scannable} onChange={(value) => updateField('is_scannable', value)} />
+          <Text style={styles.scannableLabel}>Scannable QR Code</Text>
+        </View>
+
         {combinedError ? <Text style={styles.errorText}>{combinedError}</Text> : null}
       </View>
 
@@ -198,6 +205,15 @@ const styles = StyleSheet.create({
   },
   unitLabel: {
     ...Typography.labelSm,
+    color: Colors.onSurfaceVariant,
+  },
+  scannableRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.unit * 3,
+  },
+  scannableLabel: {
+    ...Typography.bodyMd,
     color: Colors.onSurfaceVariant,
   },
   errorText: {

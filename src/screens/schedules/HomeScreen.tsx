@@ -108,7 +108,6 @@ export function HomeScreen() {
   const startMutation = useMutation({
     mutationFn: (payload: StartSchedulePayload) => scheduleApi.start(payload),
     onSuccess: (data) => {
-      console.log('data: ', data);
       queryClient.setQueryData(['active-schedule'], data);
     },
   });

@@ -59,6 +59,7 @@ export function CreateShiftScreen() {
     queryFn: () => scheduleApi.get(uuid!),
     enabled: isEditing,
   });
+  console.log('existingSchedule: ', existingSchedule);
 
   const { data: employeeData, isPending: isEmployeesLoading } = useQuery({
     queryKey: ['employees'],
@@ -96,6 +97,7 @@ export function CreateShiftScreen() {
       start_time: toApiDateTime(values.startTime),
       end_time: toApiDateTime(values.endTime),
       break_time: toBreakTimeString(values.breakMinutes),
+      is_scannable: values.is_scannable,
       ...(values.workLocationUuid ? { work_location_uuid: values.workLocationUuid } : {}),
     };
     saveMutation.mutate(payload);
@@ -108,6 +110,7 @@ export function CreateShiftScreen() {
       employeeUuid: existingSchedule.employee.uuid,
       workLocationUuid: existingSchedule.work_location?.uuid ?? '',
       breakMinutes: fromBreakTimeString(existingSchedule.break_time),
+      is_scannable: existingSchedule.start_method === 'qr',
     }
     : undefined;
 

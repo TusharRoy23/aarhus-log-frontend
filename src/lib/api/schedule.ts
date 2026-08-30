@@ -18,10 +18,13 @@ export type WorkLocation = {
     client_name: string;
 };
 
+export type StartMethod = 'qr' | 'manual';
+
 export type Schedule = {
     uuid: string;
     employee: ScheduleEmployee;
     work_location: WorkLocation | null;
+    start_method: StartMethod;
     start_time: string;
     end_time: string;
     break_time: string;
@@ -41,6 +44,7 @@ export type CreateSchedulePayload = {
     start_time: string;
     end_time: string;
     break_time: string;
+    is_scannable: boolean;
 };
 
 export type ScheduleListParams = {
