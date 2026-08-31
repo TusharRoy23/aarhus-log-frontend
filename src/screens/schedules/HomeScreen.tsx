@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MaterialIcons } from '@expo/vector-icons';
 import { AppShell } from '../../components/layout/AppShell';
-import { Button, SegmentedControl } from '../../components/ui';
+import { Button, QrScannerModal, SegmentedControl } from '../../components/ui';
 import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
@@ -118,6 +118,22 @@ export function HomeScreen() {
     },
   });
 
+  // An assigned shift set up for QR check-in requires scanning its QR code
+  // before starting — everything else (start_method 'manual', and web,
+  // where expo-camera's scanning isn't usable) starts directly, same as
+  // before. The scanned value itself isn't sent anywhere (the start-
+  // schedule API has no field for it) — a successful scan is purely a
+  // "confirm you're physically there" gate ahead of the same API call.
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const handleStartDueShift = () => {
+    if (!dueShift) return;
+    if (dueShift.start_method === 'qr' && Platform.OS !== 'web') {
+      setScannerOpen(true);
+    } else {
+      startMutation.mutate({ schedule_uuid: dueShift.uuid });
+    }
+  };
+
   // Today's whole-team roster — only fetched once "People on the Floor" is
   // actually opened, and scoped to today only. This is a homepage glance,
   // not the full date-range browser (that's Manage Shifts' job).
@@ -165,7 +181,7 @@ export function HomeScreen() {
             <CurrentShiftCard
               mode="starting-soon"
               shift={dueShift}
-              onStart={() => startMutation.mutate({ schedule_uuid: dueShift.uuid })}
+              onStart={handleStartDueShift}
               isStarting={startMutation.isPending}
             />
           ) : (
@@ -211,6 +227,15 @@ export function HomeScreen() {
           <PeopleOnFloorSection schedules={floorSchedules} />
         )}
       </ScrollView>
+
+      <QrScannerModal
+        visible={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScanned={() => {
+          setScannerOpen(false);
+          if (dueShift) startMutation.mutate({ schedule_uuid: dueShift.uuid });
+        }}
+      />
     </AppShell>
   );
 }

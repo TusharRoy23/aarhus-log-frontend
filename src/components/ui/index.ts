@@ -17,3 +17,4 @@ export * from './ActionMenu';
 export * from './EmployeeCard';
 export * from './designation/DesignationCard';
 export * from './Toast';
+export * from './QrScannerModal';
