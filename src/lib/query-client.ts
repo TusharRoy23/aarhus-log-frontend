@@ -38,9 +38,11 @@ function shouldRetry(failureCount: number, error: unknown): boolean {
 // runs on every attempt including retries — a single failing query with
 // retry: 2 showed the same toast up to 3 times.
 //
-function dispatchErrorToast(error: unknown) {
+function dispatchErrorToast(error: unknown, extraToastStatuses?: number[]) {
     const status = (error as { status?: number })?.status;
-    if (status === 403 || status === 404 || (status && status >= 500)) {
+    const shouldToast =
+        status === 403 || status === 404 || (!!status && status >= 500) || (!!status && !!extraToastStatuses?.includes(status));
+    if (shouldToast) {
         store.dispatch(
             showToast({
                 message: getErrorMessage(error, 'Something went wrong. Please try again.'),
@@ -64,8 +66,15 @@ function handleQueryError(error: unknown, query: { meta?: Record<string, unknown
     dispatchErrorToast(error);
 }
 
-function handleMutationError(error: unknown) {
-    dispatchErrorToast(error);
+// 400 is deliberately excluded from the default toast rule above (screens
+// generally show validation errors inline via getApiErrorMessage instead —
+// see base_api.ts's original reasoning). Some mutations have no inline error
+// spot at all though (e.g. the QR-gated Start Shift button) and still need a
+// 400 (invalid/expired QR token, etc.) surfaced somewhere — those opt in via
+// `useMutation({..., meta: { toastOnStatuses: [400] } })`.
+function handleMutationError(error: unknown, _variables: unknown, _onMutateResult: unknown, mutation?: { meta?: Record<string, unknown> }) {
+    const extra = mutation?.meta?.toastOnStatuses as number[] | undefined;
+    dispatchErrorToast(error, extra);
 }
 
 const queryClient = new QueryClient({

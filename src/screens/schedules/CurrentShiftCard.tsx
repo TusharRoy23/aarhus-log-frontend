@@ -11,26 +11,26 @@ import type { ActiveScheduleResponse, Schedule } from '../../lib/api/schedule';
 
 export type CurrentShiftCardProps =
   | {
-      // A real active-schedule record (from GET /employee/active-schedule/
-      // or the response of start/stop) — the actual source of truth for
-      // "is a shift running right now", not a wall-clock comparison against
-      // an assigned schedule's start/end times. Counts UP from the
-      // server-reported `time_spent` (seconds).
-      mode: 'in-progress';
-      active: ActiveScheduleResponse;
-      onEnd: () => void;
-      isEnding: boolean;
-    }
+    // A real active-schedule record (from GET /employee/active-schedule/
+    // or the response of start/stop) — the actual source of truth for
+    // "is a shift running right now", not a wall-clock comparison against
+    // an assigned schedule's start/end times. Counts UP from the
+    // server-reported `time_spent` (seconds).
+    mode: 'in-progress';
+    active: ActiveScheduleResponse;
+    onEnd: () => void;
+    isEnding: boolean;
+  }
   | {
-      // An *assigned* schedule that's due soon (or already past its
-      // start_time but not yet checked in) — HomeScreen decides this
-      // window. Counts down to start_time; once that passes the countdown
-      // just holds at 00:00:00 (useCountdown clamps at zero).
-      mode: 'starting-soon';
-      shift: Schedule;
-      onStart: () => void;
-      isStarting: boolean;
-    };
+    // An *assigned* schedule that's due soon (or already past its
+    // start_time but not yet checked in) — HomeScreen decides this
+    // window. Counts down to start_time; once that passes the countdown
+    // just holds at 00:00:00 (useCountdown clamps at zero).
+    mode: 'starting-soon';
+    shift: Schedule;
+    onStart: () => void;
+    isStarting: boolean;
+  };
 
 // Extracted from MyScheduleSection so it can be shown always, above the
 // homepage's tab switch, rather than only inside the "My Shifts" tab.
@@ -53,13 +53,6 @@ function InProgressCard({ active, onEnd, isEnding }: Extract<CurrentShiftCardPro
       <View style={styles.strip} />
 
       <View style={styles.body}>
-        <View style={styles.headerRow}>
-          <View style={styles.inProgressBadge}>
-            <Text style={styles.inProgressBadgeText}>IN PROGRESS</Text>
-          </View>
-          <Text style={styles.statusLabel}>{active.started_via === 'qr' ? 'QR' : 'Manual'}</Text>
-        </View>
-
         <Text style={styles.locationTitle}>{locationTitle}</Text>
 
         <View style={styles.timeRow}>
@@ -101,7 +94,7 @@ function StartingSoonCard({ shift, onStart, isStarting }: Extract<CurrentShiftCa
               {hasStarted ? 'READY TO START' : 'STARTING SOON'}
             </Text>
           </View>
-          <Text style={styles.statusLabel}>{capitalize(shift.status)}</Text>
+          {/* <Text style={styles.statusLabel}>{capitalize(shift.status)}</Text> */}
         </View>
 
         <Text style={styles.locationTitle}>{locationLabel(shift.work_location)}</Text>

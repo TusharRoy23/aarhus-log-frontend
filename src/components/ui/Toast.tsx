@@ -91,7 +91,11 @@ const styles = StyleSheet.create({
     // positioning itself via its own portal). Position explicitly instead
     // of relying on `flex: 1`, so it covers the screen regardless of
     // which fallback is in play.
-    ...StyleSheet.absoluteFill,
+    // `StyleSheet.absoluteFill` is a `RegisteredStyle` (an opaque id) in
+    // this RN version, not a plain object, so it can't be spread —
+    // `absoluteFillObject` is the real object form meant for exactly this
+    // "spread it with a couple tweaks" case.
+    ...StyleSheet.absoluteFillObject,
     justifyContent: 'flex-end',
   },
   safeArea: {

@@ -59,7 +59,6 @@ export function CreateShiftScreen() {
     queryFn: () => scheduleApi.get(uuid!),
     enabled: isEditing,
   });
-  console.log('existingSchedule: ', existingSchedule);
 
   const { data: employeeData, isPending: isEmployeesLoading } = useQuery({
     queryKey: ['employees'],

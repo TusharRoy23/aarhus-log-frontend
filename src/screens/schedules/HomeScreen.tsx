@@ -9,7 +9,7 @@ import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
 import { useAppSelector } from '../../store/hooks';
-import { scheduleApi, ScheduleTypes, type StartSchedulePayload } from '../../lib/api/schedule';
+import { scheduleApi, ScheduleTypes, type StartSchedulePayload, type StopSchedulePayload } from '../../lib/api/schedule';
 import { getApiErrorMessage } from '../../lib/api/base_api';
 import { CurrentShiftCard } from './CurrentShiftCard';
 import { MyScheduleSection } from './MyScheduleSection';
@@ -100,7 +100,7 @@ export function HomeScreen() {
       .filter((s) => {
         const end = new Date(s.end_time).getTime();
         const startsInMs = new Date(s.start_time).getTime() - now;
-        return end > now && startsInMs <= STARTING_SOON_WINDOW_MS;
+        return end > now && startsInMs <= STARTING_SOON_WINDOW_MS && s.status == 'pending';
       })
       .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())[0];
   }, [mySchedules, isActiveOngoing]);
@@ -110,27 +110,36 @@ export function HomeScreen() {
     onSuccess: (data) => {
       queryClient.setQueryData(['active-schedule'], data);
     },
+    // This button has no inline error text of its own (unlike a form), so a
+    // rejected qr_token (backend verifies it as part of starting) needs the
+    // global toast to fire even on a 400 — which the default toast rule
+    // deliberately excludes (see query-client.ts). Opt in just for this one.
+    meta: { toastOnStatuses: [400] },
   });
   const stopMutation = useMutation({
-    mutationFn: () => scheduleApi.stop(),
+    mutationFn: (payload: StopSchedulePayload) => scheduleApi.stop(payload),
     onSuccess: (data) => {
       queryClient.setQueryData(['active-schedule'], data);
     },
+    // Same reasoning as startMutation above — no inline error spot on this
+    // button, so a rejected qr_token needs the global toast even on a 400.
+    meta: { toastOnStatuses: [400] },
   });
 
-  // An assigned shift set up for QR check-in requires scanning its QR code
-  // before starting — everything else (start_method 'manual', and web,
-  // where expo-camera's scanning isn't usable) starts directly, same as
-  // before. The scanned value itself isn't sent anywhere (the start-
-  // schedule API has no field for it) — a successful scan is purely a
-  // "confirm you're physically there" gate ahead of the same API call.
-  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scannerPurpose, setScannerPurpose] = useState<'start' | 'stop' | null>(null);
   const handleStartDueShift = () => {
     if (!dueShift) return;
     if (dueShift.start_method === 'qr' && Platform.OS !== 'web') {
-      setScannerOpen(true);
+      setScannerPurpose('start');
     } else {
       startMutation.mutate({ schedule_uuid: dueShift.uuid });
+    }
+  };
+  const handleEndActiveShift = () => {
+    if (active?.started_via === 'qr' && Platform.OS !== 'web') {
+      setScannerPurpose('stop');
+    } else {
+      stopMutation.mutate({});
     }
   };
 
@@ -174,7 +183,7 @@ export function HomeScreen() {
             <CurrentShiftCard
               mode="in-progress"
               active={active}
-              onEnd={() => stopMutation.mutate()}
+              onEnd={handleEndActiveShift}
               isEnding={stopMutation.isPending}
             />
           ) : dueShift ? (
@@ -229,11 +238,16 @@ export function HomeScreen() {
       </ScrollView>
 
       <QrScannerModal
-        visible={scannerOpen}
-        onClose={() => setScannerOpen(false)}
-        onScanned={() => {
-          setScannerOpen(false);
-          if (dueShift) startMutation.mutate({ schedule_uuid: dueShift.uuid });
+        visible={scannerPurpose !== null}
+        onClose={() => setScannerPurpose(null)}
+        onScanned={(token) => {
+          const purpose = scannerPurpose;
+          setScannerPurpose(null);
+          if (purpose === 'start' && dueShift) {
+            startMutation.mutate({ schedule_uuid: dueShift.uuid, qr_token: token });
+          } else if (purpose === 'stop') {
+            stopMutation.mutate({ qr_token: token });
+          }
         }}
       />
     </AppShell>

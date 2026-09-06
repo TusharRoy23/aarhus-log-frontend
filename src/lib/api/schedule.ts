@@ -57,6 +57,11 @@ export type ScheduleListParams = {
 
 export type StartSchedulePayload = {
     schedule_uuid?: string;
+    qr_token?: string;
+}
+
+export type StopSchedulePayload = {
+    qr_token?: string;
 }
 
 export type ActiveScheduleResponse = {
@@ -138,8 +143,8 @@ export const scheduleApi = {
         const response = await baseApi.post(apiPath(`/employee/start-schedule/`), payload);
         return response.data;
     },
-    stop: async (): Promise<ActiveScheduleResponse> => {
-        const response = await baseApi.post(apiPath(`/employee/stop-schedule/`));
+    stop: async (payload: StopSchedulePayload): Promise<ActiveScheduleResponse> => {
+        const response = await baseApi.post(apiPath(`/employee/stop-schedule/`), payload);
         return response.data;
     },
     getActive: async (): Promise<ActiveScheduleResponse> => {

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import DateTimePicker, { DateTimePickerChangeEvent } from '@react-native-community/datetimepicker';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { MaterialIcons } from '@expo/vector-icons';
 import { TextField } from './TextField';
 import { Colors } from '../../theme/colors';
@@ -109,37 +109,33 @@ export function DateTimeField({ label, mode, value, onChange }: DateTimeFieldPro
     setShowPicker(true);
   };
 
-  const handleValueChange = (_event: DateTimePickerChangeEvent, selectedDate: Date) => {
+  // v8's native picker has no separate onDismiss — a single onChange fires
+  // for every event (set *and* dismissed/cancelled), with `selectedDate`
+  // only present for a real "set". Treat a missing date as a dismiss.
+  const handleValueChange = (_event: DateTimePickerEvent, selectedDate?: Date) => {
     if (Platform.OS === 'android') {
       setShowPicker(false);
     }
+    if (!selectedDate) return;
     onChange(formatValue(mode, selectedDate));
   };
 
-  const handleDismiss = () => {
-    setShowPicker(false);
-  };
-
-  const handleAndroidDateStepChange = (_event: DateTimePickerChangeEvent, selectedDate: Date) => {
+  const handleAndroidDateStepChange = (_event: DateTimePickerEvent, selectedDate?: Date) => {
+    if (!selectedDate) {
+      setAndroidStep(null);
+      return;
+    }
     setAndroidPendingDate(selectedDate);
     setAndroidStep('time');
   };
 
-  const handleAndroidDateStepDismiss = () => {
+  const handleAndroidTimeStepChange = (_event: DateTimePickerEvent, selectedTime?: Date) => {
     setAndroidStep(null);
-  };
-
-  const handleAndroidTimeStepChange = (_event: DateTimePickerChangeEvent, selectedTime: Date) => {
-    setAndroidStep(null);
-    if (!androidPendingDate) return;
+    if (!selectedTime || !androidPendingDate) return;
 
     const combined = new Date(androidPendingDate);
     combined.setHours(selectedTime.getHours(), selectedTime.getMinutes(), 0, 0);
     onChange(formatValue(mode, combined));
-  };
-
-  const handleAndroidTimeStepDismiss = () => {
-    setAndroidStep(null);
   };
 
   const displayText = formatDisplay(mode, value);
@@ -157,30 +153,15 @@ export function DateTimeField({ label, mode, value, onChange }: DateTimeFieldPro
 
       {/* Android: single-step date or time */}
       {showPicker && Platform.OS === 'android' && mode !== 'datetime' ? (
-        <DateTimePicker
-          value={parseValue(mode, value)}
-          mode={mode}
-          onValueChange={handleValueChange}
-          onDismiss={handleDismiss}
-        />
+        <DateTimePicker value={parseValue(mode, value)} mode={mode} onChange={handleValueChange} />
       ) : null}
 
       {/* Android: two-step datetime (date dialog, then time dialog) */}
       {androidStep === 'date' && androidPendingDate ? (
-        <DateTimePicker
-          value={androidPendingDate}
-          mode="date"
-          onValueChange={handleAndroidDateStepChange}
-          onDismiss={handleAndroidDateStepDismiss}
-        />
+        <DateTimePicker value={androidPendingDate} mode="date" onChange={handleAndroidDateStepChange} />
       ) : null}
       {androidStep === 'time' && androidPendingDate ? (
-        <DateTimePicker
-          value={androidPendingDate}
-          mode="time"
-          onValueChange={handleAndroidTimeStepChange}
-          onDismiss={handleAndroidTimeStepDismiss}
-        />
+        <DateTimePicker value={androidPendingDate} mode="time" onChange={handleAndroidTimeStepChange} />
       ) : null}
 
       {/* iOS: inline spinner in a bottom sheet, all modes supported directly — the
@@ -197,8 +178,7 @@ export function DateTimeField({ label, mode, value, onChange }: DateTimeFieldPro
                 value={parseValue(mode, value)}
                 mode={mode}
                 display="spinner"
-                onValueChange={handleValueChange}
-                onDismiss={handleDismiss}
+                onChange={handleValueChange}
               />
             </View>
           </View>
