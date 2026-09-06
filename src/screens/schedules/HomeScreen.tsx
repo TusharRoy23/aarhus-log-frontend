@@ -109,6 +109,13 @@ export function HomeScreen() {
     mutationFn: (payload: StartSchedulePayload) => scheduleApi.start(payload),
     onSuccess: (data) => {
       queryClient.setQueryData(['active-schedule'], data);
+      // Starting can change the underlying schedule's own state server-side
+      // (e.g. status moving off 'pending') — refetch every schedules-derived
+      // query (My Schedule, People on the Floor, dueShift's own source data)
+      // rather than leaving them showing whatever was fetched before this
+      // action. Matches the same invalidateQueries(['schedules']) pattern
+      // CreateShiftScreen's save mutation already uses for the same reason.
+      queryClient.invalidateQueries({ queryKey: ['schedules'] });
     },
     // This button has no inline error text of its own (unlike a form), so a
     // rejected qr_token (backend verifies it as part of starting) needs the
@@ -120,6 +127,8 @@ export function HomeScreen() {
     mutationFn: (payload: StopSchedulePayload) => scheduleApi.stop(payload),
     onSuccess: (data) => {
       queryClient.setQueryData(['active-schedule'], data);
+      // Same reasoning as startMutation's onSuccess above.
+      queryClient.invalidateQueries({ queryKey: ['schedules'] });
     },
     // Same reasoning as startMutation above — no inline error spot on this
     // button, so a rejected qr_token needs the global toast even on a 400.
