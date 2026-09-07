@@ -121,6 +121,7 @@ const SCHEDULES_PATH = '/employee/schedules/';
 
 export const scheduleApi = {
     list: async (params?: ScheduleListParams): Promise<ScheduleListResponse> => {
+        console.log('params: ', params);
         const response = await baseApi.get<ScheduleListResponse>(apiPath(SCHEDULES_PATH), { params });
         return response.data;
     },

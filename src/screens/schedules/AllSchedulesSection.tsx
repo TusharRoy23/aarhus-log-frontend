@@ -9,6 +9,7 @@ import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
 import { formatTimeRange, isSameDay, locationLabel, capitalize } from './schedule-format';
 import type { Schedule } from '../../lib/api/schedule';
+import { SchedulesSectionProps } from '../../constants/types';
 
 function notImplemented(label: string) {
   Alert.alert(label, 'Coming soon.');
@@ -43,18 +44,7 @@ function buildDates(rangeStart: Date, count: number): { item: DateScrollerItem; 
   });
 }
 
-export interface AllSchedulesSectionProps {
-  schedules: Schedule[];
-  /**
-   * Bounds the date scroller to a specific range (e.g. a Manage Shifts
-   * "Date Range" filter) — dates only page in up to `to`, never beyond.
-   * When omitted, the scroller starts today and pages forward indefinitely
-   * (the "homepage" Schedules view — no range picker there).
-   */
-  dateRange?: { from: Date; to: Date };
-}
-
-export function AllSchedulesSection({ schedules, dateRange }: AllSchedulesSectionProps) {
+export function AllSchedulesSection({ schedules, dateRange, onSelectedDateChange }: SchedulesSectionProps) {
   const router = useRouter();
 
   // Captured once on mount — a changing `dateRange` is handled by the
@@ -73,6 +63,11 @@ export function AllSchedulesSection({ schedules, dateRange }: AllSchedulesSectio
   // always selects it (no toggle-to-deselect).
   const [selectedKey, setSelectedKey] = useState(dates[0].item.key);
 
+  const handleSelectDate = (key: string) => {
+    setSelectedKey(key);
+    onSelectedDateChange?.(key);
+  };
+
   const canLoadMore = loadedCount < totalDaysAvailable;
   const loadMoreDates = canLoadMore
     ? () => setLoadedCount((count) => Math.min(count + DAY_CHUNK_SIZE, totalDaysAvailable))
@@ -90,7 +85,7 @@ export function AllSchedulesSection({ schedules, dateRange }: AllSchedulesSectio
       <DateScroller
         dates={dates.map((w) => w.item)}
         selectedKey={selectedKey}
-        onSelect={setSelectedKey}
+        onSelect={handleSelectDate}
         onEndReached={loadMoreDates}
       />
 

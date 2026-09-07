@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MaterialIcons } from '@expo/vector-icons';
 import { AppShell } from '../../components/layout/AppShell';
 import { Button, QrScannerModal, SegmentedControl } from '../../components/ui';
@@ -50,21 +50,52 @@ export function HomeScreen() {
     [],
   );
   const queryClient = useQueryClient();
+  const todayStr = useMemo(() => todayDateString(), []);
 
-  // Always fetched, regardless of which tab is active — it's what powers
-  // the "My Schedule" tab and the assigned-shift-due-soon check below.
+  // Always fetched, regardless of which tab is active — pinned to today so
+  // the due-soon check below never depends on whatever day "My Schedule"
+  // happens to have scrolled to.
   const {
-    data: mineData,
-    isPending: isMinePending,
-    isError: isMineError,
-    error: mineError,
+    data: dueShiftData,
+    isPending: isDueShiftPending,
+    isError: isDueShiftError,
+    error: dueShiftError,
   } = useQuery({
-    queryKey: ['schedules', ScheduleTypes.INDIVIDUAL],
-    queryFn: () => scheduleApi.list({ schedule_type: ScheduleTypes.INDIVIDUAL }),
+    queryKey: ['schedules', ScheduleTypes.INDIVIDUAL, todayStr],
+    queryFn: () => scheduleApi.list({ schedule_type: ScheduleTypes.INDIVIDUAL, from: todayStr, to: todayStr }),
+  });
+  const todaySchedules = useMemo(
+    () =>
+      currentUserEmail ? (dueShiftData?.results ?? []).filter((s) => s.employee.email === currentUserEmail) : [],
+    [dueShiftData, currentUserEmail],
+  );
+
+  // Separate from the query above — this one follows whichever single day
+  // is currently selected in "My Schedule"'s day-slider (defaults to today,
+  // refetches whenever the user taps a different day chip). Only fetched
+  // once the "mine" tab is actually open.
+  const [myScheduleDateKey, setMyScheduleDateKey] = useState(todayStr);
+  const {
+    data: myScheduleData,
+    isPending: isMySchedulePending,
+    isError: isMyScheduleError,
+    error: myScheduleError,
+  } = useQuery({
+    queryKey: ['schedules', ScheduleTypes.INDIVIDUAL, myScheduleDateKey],
+    queryFn: () =>
+      scheduleApi.list({ schedule_type: ScheduleTypes.INDIVIDUAL, from: myScheduleDateKey, to: myScheduleDateKey }),
+    enabled: view === 'mine',
+    // Keeps the previously-selected day's data on screen while a newly
+    // selected day is in flight, instead of `isMySchedulePending` flipping
+    // true and unmounting `MyScheduleSection` — a full unmount would reset
+    // `AllSchedulesSection`'s internal `selectedKey` state back to today
+    // (its default), fighting the day the user just tapped.
+    placeholderData: keepPreviousData,
   });
   const mySchedules = useMemo(
-    () => (currentUserEmail ? (mineData?.results ?? []).filter((s) => s.employee.email === currentUserEmail) : []),
-    [mineData, currentUserEmail],
+    () =>
+      currentUserEmail ? (myScheduleData?.results ?? []).filter((s) => s.employee.email === currentUserEmail) : [],
+    [myScheduleData, currentUserEmail],
   );
 
   // The real source of truth for "is a shift running right now" — NOT a
@@ -96,25 +127,19 @@ export function HomeScreen() {
   const dueShift = useMemo(() => {
     if (isActiveOngoing) return undefined;
     const now = Date.now();
-    return mySchedules
+    return todaySchedules
       .filter((s) => {
         const end = new Date(s.end_time).getTime();
         const startsInMs = new Date(s.start_time).getTime() - now;
         return end > now && startsInMs <= STARTING_SOON_WINDOW_MS && s.status == 'pending';
       })
       .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())[0];
-  }, [mySchedules, isActiveOngoing]);
+  }, [todaySchedules, isActiveOngoing]);
 
   const startMutation = useMutation({
     mutationFn: (payload: StartSchedulePayload) => scheduleApi.start(payload),
     onSuccess: (data) => {
       queryClient.setQueryData(['active-schedule'], data);
-      // Starting can change the underlying schedule's own state server-side
-      // (e.g. status moving off 'pending') — refetch every schedules-derived
-      // query (My Schedule, People on the Floor, dueShift's own source data)
-      // rather than leaving them showing whatever was fetched before this
-      // action. Matches the same invalidateQueries(['schedules']) pattern
-      // CreateShiftScreen's save mutation already uses for the same reason.
       queryClient.invalidateQueries({ queryKey: ['schedules'] });
     },
     // This button has no inline error text of its own (unlike a form), so a
@@ -155,7 +180,6 @@ export function HomeScreen() {
   // Today's whole-team roster — only fetched once "People on the Floor" is
   // actually opened, and scoped to today only. This is a homepage glance,
   // not the full date-range browser (that's Manage Shifts' job).
-  const todayStr = useMemo(() => todayDateString(), []);
   const {
     data: floorData,
     isPending: isFloorPending,
@@ -182,11 +206,11 @@ export function HomeScreen() {
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Current Schedule</Text>
-          {isMinePending || activeQuery.isPending ? (
+          {isDueShiftPending || activeQuery.isPending ? (
             <ActivityIndicator color={Colors.primary} style={styles.loading} />
-          ) : isMineError || activeFetchFailed ? (
+          ) : isDueShiftError || activeFetchFailed ? (
             <Text style={styles.errorText}>
-              {getApiErrorMessage(isMineError ? mineError : activeQuery.error, 'Failed to load your schedule.')}
+              {getApiErrorMessage(isDueShiftError ? dueShiftError : activeQuery.error, 'Failed to load your schedule.')}
             </Text>
           ) : isActiveOngoing && active ? (
             <CurrentShiftCard
@@ -230,12 +254,12 @@ export function HomeScreen() {
         />
 
         {view === 'mine' ? (
-          isMinePending ? (
+          isMySchedulePending ? (
             <ActivityIndicator color={Colors.primary} style={styles.loading} />
-          ) : isMineError ? (
-            <Text style={styles.errorText}>{getApiErrorMessage(mineError, 'Failed to load your schedule.')}</Text>
+          ) : isMyScheduleError ? (
+            <Text style={styles.errorText}>{getApiErrorMessage(myScheduleError, 'Failed to load your schedule.')}</Text>
           ) : (
-            <MyScheduleSection schedules={mySchedules} />
+            <MyScheduleSection schedules={mySchedules} onSelectedDateChange={setMyScheduleDateKey} />
           )
         ) : isFloorPending ? (
           <ActivityIndicator color={Colors.primary} style={styles.loading} />
