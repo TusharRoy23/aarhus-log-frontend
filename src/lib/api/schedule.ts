@@ -121,7 +121,6 @@ const SCHEDULES_PATH = '/employee/schedules/';
 
 export const scheduleApi = {
     list: async (params?: ScheduleListParams): Promise<ScheduleListResponse> => {
-        console.log('params: ', params);
         const response = await baseApi.get<ScheduleListResponse>(apiPath(SCHEDULES_PATH), { params });
         return response.data;
     },
@@ -154,6 +153,10 @@ export const scheduleApi = {
     },
     history: async (params?: ScheduleHistoryParams): Promise<ScheduleHistoryResponse> => {
         const response = await baseApi.get<ScheduleHistoryResponse>(apiPath(`/employee/schedule-history/`), { params });
+        return response.data;
+    },
+    onGoingShift: async (): Promise<ScheduleListResponse> => {
+        const response = await baseApi.get<ScheduleListResponse>(apiPath(`/employee/active-schedules/`));
         return response.data;
     }
 };

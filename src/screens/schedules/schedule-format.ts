@@ -23,7 +23,7 @@ function formatDayMonth(date: Date): string {
 export function formatTimeRange(startIso: string, endIso: string): string {
   const start = new Date(startIso);
   const end = new Date(endIso);
-  if (isSameDay(start, end)) {
+  if (start && end && isSameDay(start, end)) {
     return `${formatDayMonth(start)} ${formatTime(start)} - ${formatTime(end)}`;
   }
   return `${formatDayMonth(start)} ${formatTime(start)} - ${formatDayMonth(end)} ${formatTime(end)}`;

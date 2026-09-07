@@ -177,17 +177,18 @@ export function HomeScreen() {
     }
   };
 
-  // Today's whole-team roster — only fetched once "People on the Floor" is
-  // actually opened, and scoped to today only. This is a homepage glance,
-  // not the full date-range browser (that's Manage Shifts' job).
+  // Who's actually checked in right now (not just "scheduled for today,
+  // whether or not they've started") — only fetched once "People on the
+  // Floor" is actually opened. This is a homepage glance, not the full
+  // date-range browser (that's Manage Shifts' job).
   const {
     data: floorData,
     isPending: isFloorPending,
     isError: isFloorError,
     error: floorError,
   } = useQuery({
-    queryKey: ['schedules', 'floor', todayStr],
-    queryFn: () => scheduleApi.list({ schedule_type: ScheduleTypes.ALL, from: todayStr, to: todayStr }),
+    queryKey: ['schedules', 'floor'],
+    queryFn: () => scheduleApi.onGoingShift(),
     enabled: view === 'floor',
   });
   const floorSchedules = floorData?.results ?? [];
@@ -264,7 +265,7 @@ export function HomeScreen() {
         ) : isFloorPending ? (
           <ActivityIndicator color={Colors.primary} style={styles.loading} />
         ) : isFloorError ? (
-          <Text style={styles.errorText}>{getApiErrorMessage(floorError, "Failed to load today's schedule.")}</Text>
+          <Text style={styles.errorText}>{getApiErrorMessage(floorError, 'Failed to load who is on the floor.')}</Text>
         ) : (
           <PeopleOnFloorSection schedules={floorSchedules} />
         )}
