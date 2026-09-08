@@ -4,7 +4,6 @@ import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
-import { useCountdown } from './useCountdown';
 import { useElapsedTimer } from './useElapsedTimer';
 import { formatStartedAt, formatTimeRange, locationLabel, capitalize } from './schedule-format';
 import type { ActiveScheduleResponse, Schedule } from '../../lib/api/schedule';
@@ -24,8 +23,9 @@ export type CurrentShiftCardProps =
   | {
     // An *assigned* schedule that's due soon (or already past its
     // start_time but not yet checked in) — HomeScreen decides this
-    // window. Counts down to start_time; once that passes the countdown
-    // just holds at 00:00:00 (useCountdown clamps at zero).
+    // window. Deliberately shows a static 00:00:00, not a live countdown
+    // to start_time — the timer only starts ticking once the employee
+    // actually presses Start Shift (see InProgressCard's useElapsedTimer).
     mode: 'starting-soon';
     shift: Schedule;
     onStart: () => void;
@@ -81,7 +81,6 @@ function InProgressCard({ active, onEnd, isEnding }: Extract<CurrentShiftCardPro
 
 function StartingSoonCard({ shift, onStart, isStarting }: Extract<CurrentShiftCardProps, { mode: 'starting-soon' }>) {
   const hasStarted = new Date(shift.start_time).getTime() <= Date.now();
-  const remaining = useCountdown(new Date(shift.start_time));
 
   return (
     <View style={styles.card}>
@@ -105,7 +104,7 @@ function StartingSoonCard({ shift, onStart, isStarting }: Extract<CurrentShiftCa
         </View>
 
         <View style={styles.countdownBox}>
-          <Text style={styles.countdownText}>{remaining}</Text>
+          <Text style={styles.countdownText}>00:00:00</Text>
         </View>
 
         <Pressable style={styles.startShiftButton} onPress={onStart} disabled={isStarting}>
