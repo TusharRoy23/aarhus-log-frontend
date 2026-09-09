@@ -53,6 +53,7 @@ export type ScheduleListParams = {
     /** 'YYYY-MM-DD' */
     to?: string;
     schedule_type?: ScheduleType;
+    upcomning?: boolean;
 };
 
 export type StartSchedulePayload = {

@@ -1,14 +1,14 @@
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { AppShell } from '../../components/layout/AppShell';
-import { Button, DateTimeField } from '../../components/ui';
+import { Button } from '../../components/ui';
 import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { scheduleApi, ScheduleTypes } from '../../lib/api/schedule';
 import { AllSchedulesSection } from './AllSchedulesSection';
 import { getApiErrorMessage } from '../../lib/api/base_api';
@@ -20,22 +20,14 @@ function notImplemented(label: string) {
 
 type DateRange = { from: string; to: string };
 
-function formatRangeLabel(range: DateRange): string {
-  const format = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  return `${format(range.from)} - ${format(range.to)}`;
-}
-
 export function ManageShiftsScreen() {
   const router = useRouter();
 
-  // The Date Range filter lives only on this screen — `AllSchedulesSection`
-  // on the HomeScreen "homepage" tab has no range picker and always
-  // shows the unbounded, today-forward default.
-  const [dateRange, setDateRange] = useState<DateRange | null>(null);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [draftFrom, setDraftFrom] = useState('');
-  const [draftTo, setDraftTo] = useState('');
-  const [rangeError, setRangeError] = useState<string | undefined>();
+  // AllSchedulesSection now owns the From/To date fields itself (reported
+  // up via `onRangeChange`) — this just mirrors that range so the query
+  // below knows what to fetch. `null` until AllSchedulesSection's own mount
+  // effect reports its default (today -> today+10) range.
+  const [range, setRange] = useState<DateRange | null>(null);
 
   const {
     data: scheduleData,
@@ -43,36 +35,15 @@ export function ManageShiftsScreen() {
     isError: isSchedulesError,
     error: schedulesError,
   } = useQuery({
-    queryKey: ['schedules', dateRange?.from, dateRange?.to, ScheduleTypes.ALL],
-    queryFn: () => scheduleApi.list({ schedule_type: ScheduleTypes.ALL, from: dateRange?.from, to: dateRange?.to }),
+    queryKey: ['schedules', range?.from, range?.to, ScheduleTypes.ALL],
+    queryFn: () => scheduleApi.list({ schedule_type: ScheduleTypes.ALL, from: range?.from, to: range?.to }),
+    enabled: !!range,
+    // Keeps the previously-selected range's data on screen while a newly
+    // selected range is in flight, instead of flashing the loading state on
+    // every date-field tweak.
+    placeholderData: keepPreviousData,
   });
   const schedules = scheduleData?.results ?? [];
-
-  const openPicker = () => {
-    setDraftFrom(dateRange?.from ?? '');
-    setDraftTo(dateRange?.to ?? '');
-    setRangeError(undefined);
-    setPickerOpen(true);
-  };
-
-  const applyRange = () => {
-    if (!draftFrom || !draftTo) {
-      setRangeError('Please pick both a start and end date.');
-      return;
-    }
-    if (draftFrom > draftTo) {
-      setRangeError('Start date must be before the end date.');
-      return;
-    }
-    setRangeError(undefined);
-    setDateRange({ from: draftFrom, to: draftTo });
-    setPickerOpen(false);
-  };
-
-  const clearRange = () => {
-    setDateRange(null);
-    setPickerOpen(false);
-  };
 
   return (
     <AppShell>
@@ -96,54 +67,15 @@ export function ManageShiftsScreen() {
             <MaterialIcons name="filter-list" size={16} color={Colors.onSurface} />
             <Text style={styles.filterChipText}>Filter</Text>
           </Pressable>
-          <Pressable style={styles.filterChip} onPress={openPicker}>
-            <MaterialIcons name="calendar-today" size={16} color={Colors.onSurface} />
-            <Text style={styles.filterChipText}>{dateRange ? formatRangeLabel(dateRange) : 'Date Range'}</Text>
-            {dateRange ? (
-              <Pressable onPress={clearRange} hitSlop={8}>
-                <MaterialIcons name="close" size={14} color={Colors.onSurfaceVariant} />
-              </Pressable>
-            ) : null}
-          </Pressable>
         </View>
 
-        {isSchedulesLoading ? (
-          <ActivityIndicator color={Colors.primary} style={styles.loading} />
-        ) : isSchedulesError ? (
-          <Text style={styles.errorText}>{getApiErrorMessage(schedulesError, 'Failed to load schedules.')}</Text>
-        ) : (
-          // Remounted (via `key`) whenever the range changes, so
-          // AllSchedulesSection's internal date-window state — captured
-          // once on mount — starts fresh rather than needing to react to a
-          // changing `dateRange` prop.
-          <AllSchedulesSection
-            key={dateRange ? `${dateRange.from}_${dateRange.to}` : 'default'}
-            schedules={schedules}
-            dateRange={dateRange ? { from: new Date(dateRange.from), to: new Date(dateRange.to) } : undefined}
-          />
-        )}
+        <AllSchedulesSection
+          schedules={schedules}
+          isLoading={!range || isSchedulesLoading}
+          errorMessage={isSchedulesError ? getApiErrorMessage(schedulesError, 'Failed to load schedules.') : undefined}
+          onRangeChange={setRange}
+        />
       </ScrollView>
-
-      <Modal visible={pickerOpen} transparent animationType="fade" onRequestClose={() => setPickerOpen(false)}>
-        <View style={styles.overlay}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setPickerOpen(false)} accessibilityLabel="Close" />
-          <View style={styles.sheet}>
-            <Text style={styles.sheetTitle}>Date Range</Text>
-
-            <View style={styles.sheetFields}>
-              <DateTimeField label="From" mode="date" value={draftFrom} onChange={setDraftFrom} />
-              <DateTimeField label="To" mode="date" value={draftTo} onChange={setDraftTo} />
-            </View>
-
-            {rangeError ? <Text style={styles.errorText}>{rangeError}</Text> : null}
-
-            <View style={styles.sheetFooter}>
-              <Button label="Clear" variant="secondary" onPress={clearRange} style={styles.sheetButton} />
-              <Button label="Apply" onPress={applyRange} style={styles.sheetButton} />
-            </View>
-          </View>
-        </View>
-      </Modal>
     </AppShell>
   );
 }
@@ -186,44 +118,5 @@ const styles = StyleSheet.create({
   filterChipText: {
     ...Typography.labelSm,
     color: Colors.onSurface,
-  },
-  shiftList: {
-    gap: Spacing.gutter,
-    marginTop: Spacing.unit,
-  },
-  loading: {
-    marginTop: Spacing.sectionGap,
-  },
-  errorText: {
-    ...Typography.bodyMd,
-    color: Colors.error,
-  },
-  overlay: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(11,28,48,0.4)',
-  },
-  sheet: {
-    width: '85%',
-    maxWidth: 360,
-    backgroundColor: Colors.surfaceContainerLowest,
-    borderRadius: Radius.lg,
-    padding: Spacing.cardPadding,
-    gap: Spacing.gutter,
-  },
-  sheetTitle: {
-    ...Typography.titleMd,
-    color: Colors.onSurface,
-  },
-  sheetFields: {
-    gap: Spacing.unit * 4,
-  },
-  sheetFooter: {
-    flexDirection: 'row',
-    gap: Spacing.gutter,
-  },
-  sheetButton: {
-    flex: 1,
   },
 });

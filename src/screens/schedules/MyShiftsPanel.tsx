@@ -143,27 +143,27 @@ export function MyShiftsPanel() {
     }
   };
 
-  // Follows whichever single day is currently selected in the day-slider
-  // (defaults to today, refetches whenever the user taps a different day
-  // chip). Deliberately the same key shape as the "Current Schedule" query
-  // above (['schedules', 'individual', todayStr]) — when this defaults to
-  // today (the common case), they share one cache entry/request instead of
-  // firing two identical calls.
-  const [selectedDateKey, setSelectedDateKey] = useState(todayStr);
+  // Follows whichever From/To range is currently selected in
+  // AllSchedulesSection's own date fields (reported up via `onRangeChange`,
+  // fired once on its mount with the default today -> today+10 range, and
+  // again whenever the user changes either date). `null` until that first
+  // report arrives, so `enabled: !!myRange` below avoids ever firing an
+  // unbounded fetch in the gap between this panel mounting and that report
+  // landing.
+  const [myRange, setMyRange] = useState<{ from: string; to: string } | null>(null);
   const {
     data: myScheduleData,
     isPending: isMySchedulePending,
     isError: isMyScheduleError,
     error: myScheduleError,
   } = useQuery({
-    queryKey: ['schedules', ScheduleTypes.INDIVIDUAL, selectedDateKey],
+    queryKey: ['schedules', ScheduleTypes.INDIVIDUAL, myRange?.from, myRange?.to],
     queryFn: () =>
-      scheduleApi.list({ schedule_type: ScheduleTypes.INDIVIDUAL, from: selectedDateKey, to: selectedDateKey }),
-    // Keeps the previously-selected day's data on screen while a newly
-    // selected day is in flight, instead of `isMySchedulePending` flipping
-    // true and unmounting MyScheduleSection — a full unmount would reset
-    // AllSchedulesSection's internal `selectedKey` state back to today (its
-    // default), fighting the day the user just tapped.
+      scheduleApi.list({ schedule_type: ScheduleTypes.INDIVIDUAL, from: myRange?.from, to: myRange?.to }),
+    enabled: !!myRange,
+    // Keeps the previously-selected range's data on screen while a newly
+    // selected range is in flight, instead of flashing the loading state on
+    // every date-field tweak.
     placeholderData: keepPreviousData,
   });
   const mySchedules = useMemo(
@@ -225,13 +225,12 @@ export function MyShiftsPanel() {
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>My Schedule</Text>
-        {isMySchedulePending ? (
-          <ActivityIndicator color={Colors.primary} style={styles.loading} />
-        ) : isMyScheduleError ? (
-          <Text style={styles.errorText}>{getApiErrorMessage(myScheduleError, 'Failed to load your schedule.')}</Text>
-        ) : (
-          <MyScheduleSection schedules={mySchedules} onSelectedDateChange={setSelectedDateKey} />
-        )}
+        <MyScheduleSection
+          schedules={mySchedules}
+          isLoading={isMySchedulePending}
+          errorMessage={isMyScheduleError ? getApiErrorMessage(myScheduleError, 'Failed to load your schedule.') : undefined}
+          onRangeChange={setMyRange}
+        />
       </View>
 
       <QrScannerModal

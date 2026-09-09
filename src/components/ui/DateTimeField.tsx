@@ -85,6 +85,12 @@ export function DateTimeField({ label, mode, value, onChange }: DateTimeFieldPro
   const [showPicker, setShowPicker] = useState(false);
   const [androidStep, setAndroidStep] = useState<'date' | 'time' | null>(null);
   const [androidPendingDate, setAndroidPendingDate] = useState<Date | null>(null);
+  // iOS's spinner fires onChange continuously on every scroll tick, not just
+  // once the user settles on a value — buffer it here instead of calling
+  // the caller's `onChange` immediately, so callers that react to `onChange`
+  // (e.g. refetching a query) only see the final value, committed once the
+  // sheet closes (via "Done" or dismissing it), not every intermediate tick.
+  const [iosDraftValue, setIosDraftValue] = useState(value);
 
   const icon = (
     <MaterialIcons
@@ -106,18 +112,37 @@ export function DateTimeField({ label, mode, value, onChange }: DateTimeFieldPro
       setAndroidStep('date');
       return;
     }
+    setIosDraftValue(value);
     setShowPicker(true);
   };
 
   // v8's native picker has no separate onDismiss — a single onChange fires
   // for every event (set *and* dismissed/cancelled), with `selectedDate`
   // only present for a real "set". Treat a missing date as a dismiss.
+  //
+  // Android's dialog fires this once, on confirm, and closes itself — commit
+  // immediately, same as before. iOS's spinner fires this continuously while
+  // scrolling — only update the local draft here, committed separately once
+  // the sheet closes (see closeIosPicker below).
   const handleValueChange = (_event: DateTimePickerEvent, selectedDate?: Date) => {
     if (Platform.OS === 'android') {
       setShowPicker(false);
+      if (!selectedDate) return;
+      onChange(formatValue(mode, selectedDate));
+      return;
     }
     if (!selectedDate) return;
-    onChange(formatValue(mode, selectedDate));
+    setIosDraftValue(formatValue(mode, selectedDate));
+  };
+
+  // Whatever the wheel shows when the sheet closes is the value — same
+  // "no real cancel" convention iOS's own picker sheets use — so both the
+  // "Done" button and dismissing via the backdrop commit the current draft.
+  const closeIosPicker = () => {
+    setShowPicker(false);
+    if (iosDraftValue !== value) {
+      onChange(iosDraftValue);
+    }
   };
 
   const handleAndroidDateStepChange = (_event: DateTimePickerEvent, selectedDate?: Date) => {
@@ -167,15 +192,15 @@ export function DateTimeField({ label, mode, value, onChange }: DateTimeFieldPro
       {/* iOS: inline spinner in a bottom sheet, all modes supported directly — the
           sheet itself docks to the bottom, but the spinner is centered within it. */}
       {Platform.OS === 'ios' ? (
-        <Modal visible={showPicker} transparent animationType="slide" onRequestClose={() => setShowPicker(false)}>
+        <Modal visible={showPicker} transparent animationType="slide" onRequestClose={closeIosPicker}>
           <View style={styles.overlay}>
-            <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowPicker(false)} accessibilityLabel="Close" />
+            <Pressable style={StyleSheet.absoluteFill} onPress={closeIosPicker} accessibilityLabel="Close" />
             <View style={styles.sheet}>
-              <Pressable style={styles.doneRow} onPress={() => setShowPicker(false)} hitSlop={8}>
+              <Pressable style={styles.doneRow} onPress={closeIosPicker} hitSlop={8}>
                 <Text style={styles.doneText}>Done</Text>
               </Pressable>
               <DateTimePicker
-                value={parseValue(mode, value)}
+                value={parseValue(mode, iosDraftValue)}
                 mode={mode}
                 display="spinner"
                 onChange={handleValueChange}

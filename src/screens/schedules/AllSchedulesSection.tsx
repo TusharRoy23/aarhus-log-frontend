@@ -1,93 +1,59 @@
-import { useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
-import { DateScroller, ShiftCard, type DateScrollerItem } from '../../components/ui';
+import { DateTimeField, ShiftCard } from '../../components/ui';
 import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
-import { formatTimeRange, isSameDay, locationLabel, capitalize } from './schedule-format';
-import type { Schedule } from '../../lib/api/schedule';
+import { formatTimeRange, locationLabel, capitalize, todayDateString } from './schedule-format';
 import { SchedulesSectionProps } from '../../constants/types';
 
 function notImplemented(label: string) {
   Alert.alert(label, 'Coming soon.');
 }
 
-const DAY_CHUNK_SIZE = 20;
+const DEFAULT_RANGE_DAYS = 10;
 
-function dateKey(date: Date): string {
+function addDays(dateStr: string, days: number): string {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const date = new Date(year, month - 1, day + days);
   return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
 }
 
-function startOfDay(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function daysBetweenInclusive(from: Date, to: Date): number {
-  const ms = startOfDay(to).getTime() - startOfDay(from).getTime();
-  return Math.max(Math.floor(ms / (24 * 60 * 60 * 1000)) + 1, 0);
-}
-
-function buildDates(rangeStart: Date, count: number): { item: DateScrollerItem; date: Date }[] {
-  return Array.from({ length: count }, (_, i) => {
-    const date = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), rangeStart.getDate() + i);
-    return {
-      date,
-      item: {
-        key: dateKey(date),
-        label: date.toLocaleDateString(undefined, { weekday: 'short' }),
-        day: date.getDate(),
-      },
-    };
-  });
-}
-
-export function AllSchedulesSection({ schedules, dateRange, onSelectedDateChange }: SchedulesSectionProps) {
+// Owns its own From/To range (defaults to today -> today+10) and just
+// reports it upward via `onRangeChange` — the parent (MyShiftsPanel,
+// ManageShiftsScreen) owns the actual fetch and passes the results back
+// down as `schedules`, already scoped to that range server-side. Replaced
+// the old DateScroller-driven "pick exactly one day, filter client-side"
+// design — this section no longer narrows `schedules` to a single day at
+// all, it just lists everything it's given.
+export function AllSchedulesSection({ schedules, isLoading, errorMessage, onRangeChange }: SchedulesSectionProps) {
   const router = useRouter();
 
-  // Captured once on mount — a changing `dateRange` is handled by the
-  // parent remounting this component (e.g. via a `key` tied to the range),
-  // not by reacting to prop changes here.
-  const [rangeStart] = useState(() => (dateRange ? startOfDay(dateRange.from) : startOfDay(new Date())));
-  const totalDaysAvailable = useState(() =>
-    dateRange ? daysBetweenInclusive(dateRange.from, dateRange.to) : Infinity,
-  )[0];
+  const [from, setFrom] = useState(() => todayDateString());
+  const [to, setTo] = useState(() => addDays(todayDateString(), DEFAULT_RANGE_DAYS));
 
-  const [loadedCount, setLoadedCount] = useState(() => Math.min(DAY_CHUNK_SIZE, totalDaysAvailable));
-  const dates = useMemo(() => buildDates(rangeStart, loadedCount), [rangeStart, loadedCount]);
+  useEffect(() => {
+    onRangeChange?.({ from, to });
+  }, [from, to, onRangeChange]);
 
-  // A date filter is mandatory — there's no "show every schedule" state,
-  // so `selectedKey` always points at one of `dates` and tapping a chip
-  // always selects it (no toggle-to-deselect).
-  const [selectedKey, setSelectedKey] = useState(dates[0].item.key);
-
-  const handleSelectDate = (key: string) => {
-    setSelectedKey(key);
-    onSelectedDateChange?.(key);
-  };
-
-  const canLoadMore = loadedCount < totalDaysAvailable;
-  const loadMoreDates = canLoadMore
-    ? () => setLoadedCount((count) => Math.min(count + DAY_CHUNK_SIZE, totalDaysAvailable))
-    : undefined;
-
-  const selectedDate = dates.find((w) => w.item.key === selectedKey)?.date ?? dates[0].date;
-
-  const shiftsForDay = useMemo(
-    () => schedules.filter((s) => isSameDay(new Date(s.start_time), selectedDate)),
-    [schedules, selectedDate],
+  const sortedSchedules = useMemo(
+    () => [...schedules].sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime()),
+    [schedules],
   );
 
   return (
     <View style={styles.container}>
-      <DateScroller
-        dates={dates.map((w) => w.item)}
-        selectedKey={selectedKey}
-        onSelect={handleSelectDate}
-        onEndReached={loadMoreDates}
-      />
+      <View style={styles.dateRangeRow}>
+        <View style={styles.dateField}>
+          <DateTimeField label="From" mode="date" value={from} onChange={setFrom} />
+        </View>
+        <View style={styles.dateField}>
+          <DateTimeField label="To" mode="date" value={to} onChange={setTo} />
+        </View>
+      </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
         <Pressable style={styles.filterChip} onPress={() => notImplemented('Filter by role')}>
@@ -99,9 +65,13 @@ export function AllSchedulesSection({ schedules, dateRange, onSelectedDateChange
         </Pressable>
       </ScrollView>
 
-      {shiftsForDay.length > 0 ? (
+      {isLoading ? (
+        <ActivityIndicator color={Colors.primary} style={styles.loading} />
+      ) : errorMessage ? (
+        <Text style={styles.errorText}>{errorMessage}</Text>
+      ) : sortedSchedules.length > 0 ? (
         <View style={styles.shiftGrid}>
-          {shiftsForDay.map((shift) => (
+          {sortedSchedules.map((shift) => (
             <ShiftCard
               key={shift.uuid}
               name={`${shift.employee.first_name} ${shift.employee.last_name}`}
@@ -117,7 +87,7 @@ export function AllSchedulesSection({ schedules, dateRange, onSelectedDateChange
         </View>
       ) : (
         <View style={styles.emptyCard}>
-          <Text style={styles.emptyText}>No schedules for this day.</Text>
+          <Text style={styles.emptyText}>No schedules in this range.</Text>
         </View>
       )}
     </View>
@@ -127,6 +97,13 @@ export function AllSchedulesSection({ schedules, dateRange, onSelectedDateChange
 const styles = StyleSheet.create({
   container: {
     gap: Spacing.sectionGap,
+  },
+  dateRangeRow: {
+    flexDirection: 'row',
+    gap: Spacing.gutter,
+  },
+  dateField: {
+    flex: 1,
   },
   filterRow: {
     gap: Spacing.unit * 3,
@@ -148,6 +125,13 @@ const styles = StyleSheet.create({
   },
   shiftGrid: {
     gap: Spacing.gutter,
+  },
+  loading: {
+    marginTop: Spacing.sectionGap,
+  },
+  errorText: {
+    ...Typography.bodyMd,
+    color: Colors.error,
   },
   emptyCard: {
     backgroundColor: Colors.surfaceContainerLowest,
