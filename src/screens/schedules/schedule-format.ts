@@ -52,6 +52,15 @@ export function formatDateLabel(iso: string): string {
   return date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
+// 'YYYY-MM-DD' for "today" in the device's local timezone — the shape
+// `scheduleApi.list()`'s `from`/`to` params expect. Shared so every panel
+// that needs "today" as a query-key/param default (HomeScreen's Current
+// Schedule, MyShiftsPanel's initial selected day) computes it identically.
+export function todayDateString(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
+}
+
 export function locationLabel(workLocation: WorkLocation | null): string {
   return workLocation ? `${workLocation.name} - ${workLocation.client_name}` : 'No location assigned';
 }

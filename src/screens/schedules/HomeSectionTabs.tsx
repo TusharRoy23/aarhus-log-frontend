@@ -1,16 +1,33 @@
-import { Alert, Pressable, ScrollView, StyleSheet, Text } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text } from 'react-native';
 import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
 
-function notImplemented(label: string) {
-  Alert.alert(label, 'Coming soon.');
+export type HomeSectionTabKey = 'shifts' | 'draft-shifts' | 'hours' | 'applications' | 'floor';
+
+// Children tabs of the Home screen, not separate routes — switching between
+// them swaps the panel HomeScreen renders below this strip (see
+// HomeScreen's renderActivePanel), the tab bar itself never leaves the
+// screen. Every tab now has a real panel component behind it (even the
+// still-content-less ones render a "coming soon" panel rather than an
+// Alert) — see MyShiftsPanel/PeopleOnFloorPanel/DraftShiftsPanel/
+// HoursPanel/ApplicationsPanel, each a separate file owning its own data
+// fetching, not a shared switch statement here.
+const TABS: { key: HomeSectionTabKey; label: string }[] = [
+  { key: 'shifts', label: 'Shifts' },
+  { key: 'draft-shifts', label: 'Draft Shifts' },
+  { key: 'hours', label: 'Hours' },
+  { key: 'applications', label: 'Applications' },
+  { key: 'floor', label: 'People On the Floor' },
+];
+
+export interface HomeSectionTabsProps {
+  activeKey: HomeSectionTabKey;
+  onSelect: (key: HomeSectionTabKey) => void;
 }
 
-const PLACEHOLDER_TABS = ['Draft Shifts', 'Hours', 'Applications'] as const;
-
-export function HomeSectionTabs() {
+export function HomeSectionTabs({ activeKey, onSelect }: HomeSectionTabsProps) {
   return (
     <ScrollView
       horizontal
@@ -18,14 +35,14 @@ export function HomeSectionTabs() {
       style={styles.container}
       contentContainerStyle={styles.row}
     >
-      <Pressable style={[styles.tab, styles.tabActive]}>
-        <Text style={[styles.tabText, styles.tabTextActive]}>Shifts</Text>
-      </Pressable>
-      {PLACEHOLDER_TABS.map((label, index) => (
-        <Pressable key={`${label}-${index}`} style={styles.tab} onPress={() => notImplemented(label)}>
-          <Text style={styles.tabText}>{label}</Text>
-        </Pressable>
-      ))}
+      {TABS.map(({ key, label }) => {
+        const isActive = key === activeKey;
+        return (
+          <Pressable key={key} style={[styles.tab, isActive && styles.tabActive]} onPress={() => onSelect(key)}>
+            <Text style={[styles.tabText, isActive && styles.tabTextActive]}>{label}</Text>
+          </Pressable>
+        );
+      })}
     </ScrollView>
   );
 }
