@@ -12,6 +12,7 @@ import { useAppSelector } from '../../store/hooks';
 import { scheduleApi, ScheduleTypes, type StartSchedulePayload, type StopSchedulePayload } from '../../lib/api/schedule';
 import { getApiErrorMessage } from '../../lib/api/base_api';
 import { CurrentShiftCard } from './CurrentShiftCard';
+import { HomeSectionTabs } from './HomeSectionTabs';
 import { MyScheduleSection } from './MyScheduleSection';
 import { PeopleOnFloorSection } from './PeopleOnFloorSection';
 
@@ -195,7 +196,8 @@ export function HomeScreen() {
 
   return (
     <AppShell>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <HomeSectionTabs />
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
         <View style={styles.headerRow}>
           <View style={styles.headerText}>
             <Text style={styles.title}>
@@ -289,6 +291,9 @@ export function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
+  scrollView: {
+    flex: 1,
+  },
   scrollContent: {
     padding: Spacing.containerPaddingMobile,
     gap: Spacing.sectionGap,
