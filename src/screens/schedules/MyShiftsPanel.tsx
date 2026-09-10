@@ -8,7 +8,7 @@ import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
 import { useAppSelector } from '../../store/hooks';
-import { scheduleApi, ScheduleTypes, type StartSchedulePayload, type StopSchedulePayload } from '../../lib/api/schedule';
+import { scheduleApi, ScheduleTimeScope, ScheduleTypes, type StartSchedulePayload, type StopSchedulePayload } from '../../lib/api/schedule';
 import { getApiErrorMessage } from '../../lib/api/base_api';
 import { todayDateString } from './schedule-format';
 import { CurrentShiftCard } from './CurrentShiftCard';
@@ -56,7 +56,12 @@ export function MyShiftsPanel() {
     error: dueShiftError,
   } = useQuery({
     queryKey: ['schedules', ScheduleTypes.INDIVIDUAL, todayStr],
-    queryFn: () => scheduleApi.list({ schedule_type: ScheduleTypes.INDIVIDUAL, from: todayStr, to: todayStr }),
+    queryFn: () => scheduleApi.list({
+      schedule_type: ScheduleTypes.INDIVIDUAL,
+      from: todayStr,
+      to: todayStr,
+      time_scope: ScheduleTimeScope.UPCOMING,
+    }),
   });
   const todaySchedules = useMemo(
     () =>
@@ -143,27 +148,34 @@ export function MyShiftsPanel() {
     }
   };
 
-  // Follows whichever From/To range is currently selected in
-  // AllSchedulesSection's own date fields (reported up via `onRangeChange`,
-  // fired once on its mount with the default today -> today+10 range, and
-  // again whenever the user changes either date). `null` until that first
-  // report arrives, so `enabled: !!myRange` below avoids ever firing an
-  // unbounded fetch in the gap between this panel mounting and that report
-  // landing.
-  const [myRange, setMyRange] = useState<{ from: string; to: string } | null>(null);
+  // Follows whichever From/To range + Upcoming/Previous scope is currently
+  // selected in AllSchedulesSection's own controls (reported up via
+  // `onFiltersChange`, fired once on its mount with the defaults
+  // (today -> today+10, ScheduleTimeScope.UPCOMING) and again whenever the
+  // user changes a date or the toggle). `null` until that first report
+  // arrives, so `enabled: !!myFilters` below avoids ever firing an unbounded
+  // fetch in the gap between this panel mounting and that report landing.
+  const [myFilters, setMyFilters] = useState<{ from: string; to: string; timeScope: ScheduleTimeScope } | null>(
+    null,
+  );
   const {
     data: myScheduleData,
     isPending: isMySchedulePending,
     isError: isMyScheduleError,
     error: myScheduleError,
   } = useQuery({
-    queryKey: ['schedules', ScheduleTypes.INDIVIDUAL, myRange?.from, myRange?.to],
+    queryKey: ['schedules', ScheduleTypes.INDIVIDUAL, myFilters?.from, myFilters?.to, myFilters?.timeScope],
     queryFn: () =>
-      scheduleApi.list({ schedule_type: ScheduleTypes.INDIVIDUAL, from: myRange?.from, to: myRange?.to }),
-    enabled: !!myRange,
-    // Keeps the previously-selected range's data on screen while a newly
-    // selected range is in flight, instead of flashing the loading state on
-    // every date-field tweak.
+      scheduleApi.list({
+        schedule_type: ScheduleTypes.INDIVIDUAL,
+        from: myFilters?.from,
+        to: myFilters?.to,
+        time_scope: myFilters?.timeScope,
+      }),
+    enabled: !!myFilters,
+    // Keeps the previously-selected filters' data on screen while a newly
+    // selected range/scope is in flight, instead of flashing the loading
+    // state on every date-field or toggle tweak.
     placeholderData: keepPreviousData,
   });
   const mySchedules = useMemo(
@@ -229,7 +241,7 @@ export function MyShiftsPanel() {
           schedules={mySchedules}
           isLoading={isMySchedulePending}
           errorMessage={isMyScheduleError ? getApiErrorMessage(myScheduleError, 'Failed to load your schedule.') : undefined}
-          onRangeChange={setMyRange}
+          onFiltersChange={setMyFilters}
         />
       </View>
 

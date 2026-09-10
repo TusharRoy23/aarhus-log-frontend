@@ -2,13 +2,24 @@ import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
-import { DateTimeField, ShiftCard } from '../../components/ui';
+import { ActionMenu, DateTimeField, ShiftCard } from '../../components/ui';
 import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
 import { formatTimeRange, locationLabel, capitalize, todayDateString } from './schedule-format';
+import { ScheduleTimeScope } from '../../lib/api/schedule';
 import { SchedulesSectionProps } from '../../constants/types';
+
+const TIME_SCOPE_LABELS: Record<ScheduleTimeScope, string> = {
+  [ScheduleTimeScope.UPCOMING]: 'Upcoming',
+  [ScheduleTimeScope.PREVIOUS]: 'Previous',
+};
+
+// Derived from the enum itself (not a hardcoded pair) — if ScheduleTimeScope
+// ever grows a third value, it shows up here automatically, no code change
+// needed at this call site.
+const TIME_SCOPE_VALUES = Object.values(ScheduleTimeScope);
 
 function notImplemented(label: string) {
   Alert.alert(label, 'Coming soon.');
@@ -22,22 +33,24 @@ function addDays(dateStr: string, days: number): string {
   return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
 }
 
-// Owns its own From/To range (defaults to today -> today+10) and just
-// reports it upward via `onRangeChange` — the parent (MyShiftsPanel,
+// Owns its own From/To range (defaults to today -> today+10) and Upcoming/
+// Previous time-scope toggle (defaults to Upcoming), and just reports them
+// upward via `onFiltersChange` — the parent (MyShiftsPanel,
 // ManageShiftsScreen) owns the actual fetch and passes the results back
-// down as `schedules`, already scoped to that range server-side. Replaced
+// down as `schedules`, already scoped to these filters server-side. Replaced
 // the old DateScroller-driven "pick exactly one day, filter client-side"
 // design — this section no longer narrows `schedules` to a single day at
 // all, it just lists everything it's given.
-export function AllSchedulesSection({ schedules, isLoading, errorMessage, onRangeChange }: SchedulesSectionProps) {
+export function AllSchedulesSection({ schedules, isLoading, errorMessage, onFiltersChange }: SchedulesSectionProps) {
   const router = useRouter();
 
   const [from, setFrom] = useState(() => todayDateString());
   const [to, setTo] = useState(() => addDays(todayDateString(), DEFAULT_RANGE_DAYS));
+  const [timeScope, setTimeScope] = useState<ScheduleTimeScope>(ScheduleTimeScope.UPCOMING);
 
   useEffect(() => {
-    onRangeChange?.({ from, to });
-  }, [from, to, onRangeChange]);
+    onFiltersChange?.({ from, to, timeScope });
+  }, [from, to, timeScope, onFiltersChange]);
 
   const sortedSchedules = useMemo(
     () => [...schedules].sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime()),
@@ -56,6 +69,19 @@ export function AllSchedulesSection({ schedules, isLoading, errorMessage, onRang
       </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+        <ActionMenu
+          trigger={
+            <View style={styles.filterChip}>
+              <MaterialIcons name="event" size={16} color={Colors.onSurface} />
+              <Text style={styles.filterChipText}>{TIME_SCOPE_LABELS[timeScope]}</Text>
+            </View>
+          }
+          items={TIME_SCOPE_VALUES.map((scope) => ({
+            label: TIME_SCOPE_LABELS[scope],
+            icon: 'event' as const,
+            onPress: () => setTimeScope(scope),
+          }))}
+        />
         <Pressable style={styles.filterChip} onPress={() => notImplemented('Filter by role')}>
           <MaterialIcons name="filter-list" size={16} color={Colors.onSurface} />
           <Text style={styles.filterChipText}>All Roles</Text>

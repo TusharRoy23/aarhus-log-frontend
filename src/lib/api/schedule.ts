@@ -47,13 +47,18 @@ export type CreateSchedulePayload = {
     is_scannable: boolean;
 };
 
+export enum ScheduleTimeScope {
+    UPCOMING = "upcoming",
+    PREVIOUS = "previous"
+}
+
 export type ScheduleListParams = {
     /** 'YYYY-MM-DD' */
     from?: string;
     /** 'YYYY-MM-DD' */
     to?: string;
     schedule_type?: ScheduleType;
-    upcomning?: boolean;
+    time_scope?: ScheduleTimeScope;
 };
 
 export type StartSchedulePayload = {
@@ -158,6 +163,10 @@ export const scheduleApi = {
     },
     onGoingShift: async (): Promise<ScheduleListResponse> => {
         const response = await baseApi.get<ScheduleListResponse>(apiPath(`/employee/active-schedules/`));
+        return response.data;
+    },
+    upComingShift: async (): Promise<Schedule> => {
+        const response = await baseApi.get<Schedule>(apiPath(`/employee/upcoming-schedule/`));
         return response.data;
     }
 };
