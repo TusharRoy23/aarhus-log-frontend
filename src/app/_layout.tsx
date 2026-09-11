@@ -98,11 +98,22 @@ function AppNavigator() {
   return (
     <SafeAreaProvider>
       <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="create-shift" options={{ presentation: 'modal' }} />
-        <Stack.Screen name="employee-form" options={{ presentation: 'modal' }} />
-        <Stack.Screen name="employee-permissions" options={{ presentation: 'modal' }} />
-        <Stack.Screen name="designation-form" options={{ presentation: 'modal' }} />
-        <Stack.Screen name="designation-permissions" options={{ presentation: 'modal' }} />
+        {/* `presentation: 'modal'` alone doesn't guarantee a vertical
+            "sheet" motion on every platform (web in particular tends to
+            fall back to the default horizontal push) — `animation:
+            'slide_from_bottom'` makes every modal route actually slide up
+            like a sheet instead, regardless of platform. */}
+        <Stack.Screen name="create-shift" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="employee-form" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+        <Stack.Screen
+          name="employee-permissions"
+          options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
+        />
+        <Stack.Screen name="designation-form" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+        <Stack.Screen
+          name="designation-permissions"
+          options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
+        />
       </Stack>
       <Toast />
       <StatusBar style="dark" />
