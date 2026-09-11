@@ -1,32 +1,15 @@
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { MaterialIcons } from '@expo/vector-icons';
-import { Button, QrScannerModal } from '../../components/ui';
+import { QrScannerModal } from '../../components/ui';
 import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
-import { Radius } from '../../theme/radius';
 import { useAppSelector } from '../../store/hooks';
 import { scheduleApi, ScheduleTimeScope, ScheduleTypes, type StartSchedulePayload, type StopSchedulePayload } from '../../lib/api/schedule';
 import { getApiErrorMessage } from '../../lib/api/base_api';
-import { todayDateString } from './schedule-format';
-import { CurrentShiftCard } from './CurrentShiftCard';
+import { CurrentScheduleSection } from './CurrentScheduleSection';
 import { MyScheduleSection } from './MyScheduleSection';
-
-// An assigned shift starts showing here (with a "Start Shift" action) once
-// it's within this many hours of its start_time — before that it's just
-// part of the normal Upcoming list, not "current" yet. Also covers a shift
-// whose start_time has already passed but hasn't been checked into yet
-// (see `isDueSoon` below) — the window is measured from "now" either way.
-const STARTING_SOON_WINDOW_MS = 2 * 60 * 60 * 1000;
-
-function getGreeting(): string {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'Good morning';
-  if (hour < 17) return 'Good afternoon';
-  return 'Good evening';
-}
 
 // The "Shifts" tab's content — owns its own data fetching. HomeScreen only
 // mounts this panel while this tab is selected, so mounting itself is the
@@ -44,30 +27,23 @@ export function MyShiftsPanel() {
     [],
   );
   const queryClient = useQueryClient();
-  const todayStr = useMemo(() => todayDateString(), []);
 
-  // Always fetched while this panel is mounted — pinned to today so the
-  // due-soon check below never depends on whatever day "My Schedule" (below)
-  // happens to have scrolled to.
+  // A dedicated endpoint for "the single next assigned shift" — deliberately
+  // kept separate from the "My Schedule" list query below (a different data
+  // source entirely, not filtered out of or merged into that list). Same
+  // 404-means-nothing-upcoming handling as `activeQuery` below, since this
+  // is a single-record endpoint with the same shape of "normal empty state".
   const {
-    data: dueShiftData,
-    isPending: isDueShiftPending,
-    isError: isDueShiftError,
-    error: dueShiftError,
+    data: upcomingShift,
+    isPending: isUpcomingPending,
+    isError: isUpcomingError,
+    error: upcomingError,
   } = useQuery({
-    queryKey: ['schedules', ScheduleTypes.INDIVIDUAL, todayStr],
-    queryFn: () => scheduleApi.list({
-      schedule_type: ScheduleTypes.INDIVIDUAL,
-      from: todayStr,
-      to: todayStr,
-      time_scope: ScheduleTimeScope.UPCOMING,
-    }),
+    queryKey: ['schedules', 'upcoming'],
+    queryFn: scheduleApi.upComingShift,
+    meta: { suppressToastForStatuses: [404] },
   });
-  const todaySchedules = useMemo(
-    () =>
-      currentUserEmail ? (dueShiftData?.results ?? []).filter((s) => s.employee.email === currentUserEmail) : [],
-    [dueShiftData, currentUserEmail],
-  );
+  const upcomingFetchFailed = isUpcomingError && (upcomingError as { status?: number })?.status !== 404;
 
   // The real source of truth for "is a shift running right now" — NOT a
   // wall-clock comparison against an assigned schedule's start/end times.
@@ -91,21 +67,15 @@ export function MyShiftsPanel() {
   // from "just finished".
   const isActiveOngoing = !!active && active.end_time === null;
 
-  // An *assigned* schedule that's due soon: starts within
-  // STARTING_SOON_WINDOW_MS, OR its start_time already passed but it hasn't
-  // ended yet and nobody's checked in (`isActiveOngoing` is false) — either
-  // way, offer to start it. Only relevant when nothing is already running.
   const dueShift = useMemo(() => {
-    if (isActiveOngoing) return undefined;
+    if (isActiveOngoing || !upcomingShift) return undefined;
     const now = Date.now();
-    return todaySchedules
-      .filter((s) => {
-        const end = new Date(s.end_time).getTime();
-        const startsInMs = new Date(s.start_time).getTime() - now;
-        return end > now && startsInMs <= STARTING_SOON_WINDOW_MS && s.status == 'pending';
-      })
-      .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())[0];
-  }, [todaySchedules, isActiveOngoing]);
+    const end = new Date(upcomingShift.end_time).getTime();
+    if (end > now && upcomingShift.status === 'pending') {
+      return upcomingShift;
+    }
+    return undefined;
+  }, [upcomingShift, isActiveOngoing]);
 
   const startMutation = useMutation({
     mutationFn: (payload: StartSchedulePayload) => scheduleApi.start(payload),
@@ -186,54 +156,24 @@ export function MyShiftsPanel() {
 
   return (
     <>
-      <View style={styles.headerRow}>
-        <View style={styles.headerText}>
-          <Text style={styles.title}>
-            {getGreeting()}, {firstName}
-          </Text>
-          <Text style={styles.subtitle}>{todayLabel}</Text>
-        </View>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Current Schedule</Text>
-        {isDueShiftPending || activeQuery.isPending ? (
-          <ActivityIndicator color={Colors.primary} style={styles.loading} />
-        ) : isDueShiftError || activeFetchFailed ? (
-          <Text style={styles.errorText}>
-            {getApiErrorMessage(isDueShiftError ? dueShiftError : activeQuery.error, 'Failed to load your schedule.')}
-          </Text>
-        ) : isActiveOngoing && active ? (
-          <CurrentShiftCard
-            mode="in-progress"
-            active={active}
-            onEnd={handleEndActiveShift}
-            isEnding={stopMutation.isPending}
-          />
-        ) : dueShift ? (
-          <CurrentShiftCard
-            mode="starting-soon"
-            shift={dueShift}
-            onStart={handleStartDueShift}
-            isStarting={startMutation.isPending}
-          />
-        ) : (
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyText}>No schedule assigned right now.</Text>
-            {/* "Open shift" — no assigned schedule at all, so let the
-                employee start ad-hoc work instead of just showing an
-                empty state. Distinct from "Start Shift" above, which
-                checks in to an already-assigned schedule. */}
-            <Button
-              label="Start New Shift"
-              icon={<MaterialIcons name="add-circle-outline" size={18} color={Colors.onPrimary} />}
-              onPress={() => startMutation.mutate({})}
-              loading={startMutation.isPending}
-              style={styles.startNewShiftButton}
-            />
-          </View>
-        )}
-      </View>
+      <CurrentScheduleSection
+        firstName={firstName}
+        todayLabel={todayLabel}
+        isLoading={isUpcomingPending || activeQuery.isPending}
+        errorMessage={
+          upcomingFetchFailed || activeFetchFailed
+            ? getApiErrorMessage(upcomingFetchFailed ? upcomingError : activeQuery.error, 'Failed to load your schedule.')
+            : undefined
+        }
+        isActiveOngoing={isActiveOngoing}
+        active={active}
+        dueShift={dueShift}
+        isStarting={startMutation.isPending}
+        isEnding={stopMutation.isPending}
+        onStartDueShift={handleStartDueShift}
+        onEndActiveShift={handleEndActiveShift}
+        onStartNewShift={() => startMutation.mutate({})}
+      />
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>My Schedule</Text>
@@ -263,24 +203,6 @@ export function MyShiftsPanel() {
 }
 
 const styles = StyleSheet.create({
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-    gap: Spacing.gutter,
-  },
-  headerText: {
-    flex: 1,
-    gap: Spacing.unit,
-  },
-  title: {
-    ...Typography.headlineLgMobile,
-    color: Colors.onSurface,
-  },
-  subtitle: {
-    ...Typography.bodyMd,
-    color: Colors.onSurfaceVariant,
-  },
   section: {
     gap: Spacing.gutter,
   },
@@ -289,26 +211,5 @@ const styles = StyleSheet.create({
     fontSize: 22,
     lineHeight: 28,
     color: Colors.onSurface,
-  },
-  loading: {
-    marginTop: Spacing.sectionGap,
-  },
-  errorText: {
-    ...Typography.bodyMd,
-    color: Colors.error,
-  },
-  emptyCard: {
-    backgroundColor: Colors.surfaceContainerLowest,
-    borderWidth: 1,
-    borderColor: Colors.outlineVariant,
-    borderRadius: Radius.lg,
-    padding: Spacing.cardPadding,
-  },
-  emptyText: {
-    ...Typography.bodyMd,
-    color: Colors.onSurfaceVariant,
-  },
-  startNewShiftButton: {
-    marginTop: Spacing.unit * 4,
   },
 });
