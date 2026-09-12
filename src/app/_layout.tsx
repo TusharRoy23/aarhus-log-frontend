@@ -97,12 +97,10 @@ function AppNavigator() {
 
   return (
     <SafeAreaProvider>
-      <Stack screenOptions={{ headerShown: false }}>
-        {/* `presentation: 'modal'` alone doesn't guarantee a vertical
-            "sheet" motion on every platform (web in particular tends to
-            fall back to the default horizontal push) — `animation:
-            'slide_from_bottom'` makes every modal route actually slide up
-            like a sheet instead, regardless of platform. */}
+      {/* `animationDuration` only applies on Android/Web (a native-stack
+          limitation) — quickened from the ~350ms default since the fade
+          felt sluggish at full speed. */}
+      <Stack screenOptions={{ headerShown: false, animation: 'fade', animationDuration: 150 }}>
         <Stack.Screen name="create-shift" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
         <Stack.Screen name="employee-form" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
         <Stack.Screen
