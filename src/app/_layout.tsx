@@ -97,12 +97,21 @@ function AppNavigator() {
 
   return (
     <SafeAreaProvider>
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="create-shift" options={{ presentation: 'modal' }} />
-        <Stack.Screen name="employee-form" options={{ presentation: 'modal' }} />
-        <Stack.Screen name="employee-permissions" options={{ presentation: 'modal' }} />
-        <Stack.Screen name="designation-form" options={{ presentation: 'modal' }} />
-        <Stack.Screen name="designation-permissions" options={{ presentation: 'modal' }} />
+      {/* `animationDuration` only applies on Android/Web (a native-stack
+          limitation) — quickened from the ~350ms default since the fade
+          felt sluggish at full speed. */}
+      <Stack screenOptions={{ headerShown: false, animation: 'fade', animationDuration: 150 }}>
+        <Stack.Screen name="create-shift" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="employee-form" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+        <Stack.Screen
+          name="employee-permissions"
+          options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
+        />
+        <Stack.Screen name="designation-form" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+        <Stack.Screen
+          name="designation-permissions"
+          options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
+        />
       </Stack>
       <Toast />
       <StatusBar style="dark" />
