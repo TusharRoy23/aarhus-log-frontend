@@ -8,6 +8,8 @@ import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
+import { getApiErrorMessage } from '../../lib/api/base_api';
+import { useLoginLookupFlow } from '../../hooks/useLoginLookupFlow';
 
 const WIDE_BREAKPOINT = 768;
 
@@ -18,11 +20,12 @@ export function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+
+  const loginFlow = useLoginLookupFlow();
+  const submissionError = getApiErrorMessage(loginFlow.error, '') || undefined;
 
   const handleSubmit = () => {
-    setSubmitting(true);
-    setTimeout(() => setSubmitting(false), 1500);
+    loginFlow.submit({ email, password });
   };
 
   return (
@@ -65,10 +68,12 @@ export function LoginScreen() {
                 <Text style={styles.rememberLabel}>Remember me for 30 days</Text>
               </View>
 
+              {submissionError ? <Text style={styles.errorText}>{submissionError}</Text> : null}
+
               <Button
                 label="Login"
                 icon={<MaterialIcons name="arrow-forward" size={20} color={Colors.onPrimary} />}
-                loading={submitting}
+                loading={loginFlow.isPending}
                 onPress={handleSubmit}
               />
 
@@ -260,6 +265,10 @@ const styles = StyleSheet.create({
   form: {
     padding: Spacing.containerPaddingMobile,
     gap: Spacing.unit * 6,
+  },
+  errorText: {
+    ...Typography.bodyMd,
+    color: Colors.error,
   },
   formWide: {
     width: '50%',

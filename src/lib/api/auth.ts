@@ -1,0 +1,80 @@
+import baseApi from './base_api';
+import { apiPath } from './utils';
+
+export type RegisterPayload = {
+    email: string;
+    password: string;
+    confirm_password: string;
+    first_name: string;
+    last_name: string;
+    org_name: string;
+};
+
+export type RegisterResponse = {
+    message: string;
+};
+
+export type VerifyOtpPayload = {
+    email: string;
+    otp: string;
+};
+
+export type VerifyOtpResponse = {
+    message: string;
+};
+
+export type LoginLookupPayload = {
+    email: string;
+    password: string;
+};
+
+export type LoginPayload = {
+    username: string;
+    password: string;
+    organization_uuid: string;
+}
+
+export type Organization = {
+    uuid: string;
+    name: string;
+    designation?: string;
+}
+
+export type User = {
+    username: string;
+    email: string;
+    name?: string;
+}
+
+export type LoginLookupResponse = {
+    organizations: Organization[];
+}
+
+export type LoginResponse = {
+    refresh: string;
+    access: string;
+    user: User;
+    organization: Organization;
+}
+
+export const authApi = {
+    register: async (payload: RegisterPayload): Promise<RegisterResponse> => {
+        const response = await baseApi.post<RegisterResponse>(apiPath('/user/signup/'), payload)
+        return response.data;
+    },
+    verifyOtp: async (payload: VerifyOtpPayload): Promise<VerifyOtpResponse> => {
+        const response = await baseApi.post<VerifyOtpResponse>(apiPath('/user/verify-otp/'), payload);
+        return response.data;
+    },
+    loginLookup: async (payload: LoginLookupPayload): Promise<LoginLookupResponse> => {
+        const response = await baseApi.post<LoginLookupResponse>(apiPath('/user/login-lookup/'), payload);
+        return response.data;
+    },
+    login: async (payload: LoginPayload): Promise<LoginResponse> => {
+        const response = await baseApi.post<LoginResponse>(apiPath('/user/login/'), payload);
+        return response.data;
+    },
+    logout: async (): Promise<void> => {
+        await baseApi.post(apiPath('/user/logout/'));
+    },
+};
