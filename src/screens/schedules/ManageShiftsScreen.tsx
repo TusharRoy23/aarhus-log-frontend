@@ -60,12 +60,23 @@ export function ManageShiftsScreen() {
           <Text style={styles.subtitle}>Review and modify employee schedules.</Text>
         </View>
 
-        <Button
-          label="New Schedule"
-          icon={<MaterialIcons name="add" size={20} color={Colors.onPrimary} />}
-          onPress={() => router.push('/create-shift')}
-          permission={{ resource: Resources.SCHEDULE, action: 'add' }}
-        />
+        <View style={styles.actionRow}>
+          <Button
+            label="New Schedule"
+            icon={<MaterialIcons name="add" size={20} color={Colors.onPrimary} />}
+            onPress={() => router.push('/create-shift')}
+            permission={{ resource: Resources.SCHEDULE, action: 'add' }}
+            style={styles.actionButton}
+          />
+          <Button
+            label="Bulk Schedule"
+            variant="secondary"
+            icon={<MaterialIcons name="calendar-view-week" size={20} color={Colors.primary} />}
+            onPress={() => router.push('/bulk-schedule')}
+            permission={{ resource: Resources.SCHEDULE, action: 'add' }}
+            style={styles.actionButton}
+          />
+        </View>
 
         {/* <SearchField placeholder="Search employees..." value={query} onChangeText={setQuery} /> */}
 
@@ -98,6 +109,13 @@ const styles = StyleSheet.create({
   header: {
     gap: Spacing.unit,
     marginBottom: Spacing.unit,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    gap: Spacing.gutter,
+  },
+  actionButton: {
+    flex: 1,
   },
   title: {
     ...Typography.headlineLgMobile,

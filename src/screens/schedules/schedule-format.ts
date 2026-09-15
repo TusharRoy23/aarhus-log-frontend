@@ -1,4 +1,4 @@
-import type { WorkLocation } from '../../lib/api/schedule';
+import type { WorkLocation, WorkWeek } from '../../lib/api/schedule';
 
 // Shared formatting helpers for real `Schedule` records — used by both
 // MyScheduleSection and AllSchedulesSection so date/time/location display
@@ -59,6 +59,32 @@ export function formatDateLabel(iso: string): string {
 export function todayDateString(): string {
   const d = new Date();
   return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
+}
+
+// Parses a 'YYYY-MM-DD' date-only string as local midnight. `new Date(str)`
+// on a bare date-only string parses it as UTC per spec — reading local
+// getters (getDate/getMonth) off that result silently shifts the calendar
+// date by a day in timezones behind/ahead of UTC. Same class of bug already
+// guarded against elsewhere in this app (DateTimeField's own date parsing);
+// always use this instead of handing a date-only string to `new Date()`.
+export function parseDateOnly(dateStr: string): Date {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
+// "Week 38 (Sep 15 – Sep 21, 2026)" — month-then-day, matching how this
+// range is meant to read as a whole label; deliberately not `formatDayMonth`
+// above, which is day-then-month for a different context (shift time
+// ranges). Takes the authoritative WorkWeek fields directly (from
+// GET /employee/work-weeks/) rather than computing a week number
+// client-side — the backend is the source of truth for week numbering and
+// for which weeks are even selectable (it already excludes past weeks).
+export function formatWeekLabel(week: Pick<WorkWeek, 'week_number' | 'start_date' | 'end_date'>): string {
+  const start = parseDateOnly(week.start_date);
+  const end = parseDateOnly(week.end_date);
+  const startLabel = `${MONTH_SHORT[start.getMonth()]} ${start.getDate()}`;
+  const endLabel = `${MONTH_SHORT[end.getMonth()]} ${end.getDate()}`;
+  return `Week ${week.week_number} (${startLabel} – ${endLabel}, ${end.getFullYear()})`;
 }
 
 export function locationLabel(workLocation: WorkLocation | null): string {
