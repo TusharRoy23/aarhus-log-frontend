@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -158,6 +158,28 @@ function buildCellsFromSchedules(
   return cells;
 }
 
+// Picking a week — either the active card's own change-week dropdown, or
+// the "Add Next Week" flow — now checks the backend for an already-existing
+// bulk schedule on that week and loads it if found, rather than always
+// starting blank. This keeps picking an already-scheduled week from
+// silently building a second, conflicting roster under the same week
+// number: it becomes an edit of the existing one instead.
+async function fetchWeekEntry(week: WorkWeek): Promise<WeekEntry> {
+  try {
+    const existing = await scheduleApi.getBulkSchedule(week.week_number);
+    return {
+      week,
+      cells: buildCellsFromSchedules(existing.schedules, parseDateOnly(week.start_date)),
+      saveStatus: existing.status === BulkScheduleStatus.PUBLISHED ? 'published' : 'draft',
+    };
+  } catch {
+    // No bulk schedule exists yet for this week (404), or a transient fetch
+    // error — either way, start this week blank rather than blocking the
+    // flow. Re-picking the same week retries the lookup.
+    return { week, cells: {}, saveStatus: 'unsaved' };
+  }
+}
+
 // Every filled cell in `week` becomes one bulk-schedule item. Overnight
 // shifts (end time-of-day <= start time-of-day) roll the end onto the next
 // calendar day — same convention used for display elsewhere in this app,
@@ -208,8 +230,8 @@ function saveStatusLabel(status: WeekEntry['saveStatus']): string {
 export function BulkScheduleScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { uuid } = useLocalSearchParams<{ uuid?: string }>();
-  const isEditing = Boolean(uuid);
+  const { week_number: weekNumberParam } = useLocalSearchParams<{ week_number?: string }>();
+  const isEditing = Boolean(weekNumberParam);
 
   const { data: employeeData, isPending: isEmployeesPending, isError: isEmployeesError, error: employeesError } =
     useQuery({ queryKey: ['employees'], queryFn: employeeApi.list });
@@ -243,16 +265,23 @@ export function BulkScheduleScreen() {
     isError: isBulkListError,
     error: bulkListError,
   } = useQuery({ queryKey: ['bulk-schedules'], queryFn: scheduleApi.bulkList, enabled: isEditing });
-  const existingBulkSchedule = bulkListData?.results.find((bulkSchedule) => bulkSchedule.uuid === uuid);
+  const existingBulkSchedule = bulkListData?.results.find(
+    (bulkSchedule) => bulkSchedule.week_number === Number(weekNumberParam),
+  );
 
   const [weeks, setWeeks] = useState<WeekEntry[]>([]);
+  // Guards the create-mode branch below against firing fetchWeekEntry more
+  // than once while its promise is still in flight (the effect can re-run
+  // on every dependency change before that resolves) — weeks.length only
+  // flips from 0 once the fetch actually finishes and calls setWeeks.
+  const isSeedingRef = useRef(false);
   // Seeds the single week card once its data is ready — can't do this
   // synchronously in useState's initializer since it depends on async
   // fetches either way. Guarded to run exactly once (weeks.length stays
   // >=1 forever after — there's no remove-week action, and editing only
   // ever has the one week).
   useEffect(() => {
-    if (weeks.length > 0) return;
+    if (weeks.length > 0 || isSeedingRef.current) return;
     if (isEditing) {
       if (!existingBulkSchedule) return;
       const resolvedWeek = resolveEditWorkWeek(existingBulkSchedule, workWeeks);
@@ -266,7 +295,16 @@ export function BulkScheduleScreen() {
         },
       ]);
     } else if (workWeeks.length > 0) {
-      setWeeks([{ week: workWeeks[0], cells: {}, saveStatus: 'unsaved' }]);
+      // The auto-selected first week is still a "week being used to create
+      // a bulk schedule" — check the backend the same way an explicit
+      // change-week selection does, so reopening this screen on a week
+      // that already has a draft/published roster loads it instead of
+      // silently starting a blank one over it.
+      isSeedingRef.current = true;
+      fetchWeekEntry(workWeeks[0]).then((entry) => {
+        setWeeks([entry]);
+        isSeedingRef.current = false;
+      });
     }
   }, [isEditing, existingBulkSchedule, workWeeks, weeks.length]);
 
@@ -300,27 +338,38 @@ export function BulkScheduleScreen() {
     );
   };
 
-  // Changing a card's week resets its cells — they were entered against a
-  // different week's actual dates, so carrying them over would silently
-  // misattribute shifts to the wrong days rather than fail loudly. Not
-  // reachable at all in edit mode (the grid's change-week control is
-  // hidden there), but kept generic rather than special-cased.
-  const changeCardWeek = (weekIndex: number, newWeek: WorkWeek) => {
-    setWeeks((prev) =>
-      prev.map((week, index) => (index === weekIndex ? { week: newWeek, cells: {}, saveStatus: 'unsaved' } : week)),
-    );
+  const [isResolvingWeek, setIsResolvingWeek] = useState(false);
+
+  // Changing a card's week discards its current cells — they were entered
+  // against a different week's actual dates, so carrying them over would
+  // silently misattribute shifts to the wrong days rather than fail loudly.
+  // The new week's own cells come from fetchWeekEntry (blank, unless that
+  // week already has a bulk schedule on the backend). Not reachable at all
+  // in edit mode (the grid's change-week control is hidden there).
+  const changeCardWeek = async (weekIndex: number, newWeek: WorkWeek) => {
+    setIsResolvingWeek(true);
+    const entry = await fetchWeekEntry(newWeek);
+    setWeeks((prev) => prev.map((week, index) => (index === weekIndex ? entry : week)));
+    setIsResolvingWeek(false);
   };
 
-  const handleAddWeek = () => {
+  const handleAddWeek = async () => {
     if (!addWeekDraft) return;
-    setActiveWeekIndex(weeks.length);
-    setWeeks((prev) => [...prev, { week: addWeekDraft, cells: {}, saveStatus: 'unsaved' }]);
+    const draft = addWeekDraft;
+    const newIndex = weeks.length;
     setAddWeekDraft(null);
+    setIsResolvingWeek(true);
+    const entry = await fetchWeekEntry(draft);
+    setWeeks((prev) => [...prev, entry]);
+    setActiveWeekIndex(newIndex);
+    setIsResolvingWeek(false);
   };
 
   const bulkSaveMutation = useMutation({
     mutationFn: (payload: CreateBulkSchedulePayload) =>
-      isEditing && uuid ? scheduleApi.updateWeeklyShifts(payload, uuid) : scheduleApi.bulkCreate(payload),
+      isEditing && weekNumberParam
+        ? scheduleApi.updateWeeklyShifts(payload, Number(weekNumberParam))
+        : scheduleApi.bulkCreate(payload),
   });
 
   const handleSave = (status: BulkScheduleStatus) => {
@@ -374,22 +423,28 @@ export function BulkScheduleScreen() {
           <>
             {weeks.map((week, index) =>
               index === activeWeekIndex ? (
-                <BulkScheduleWeekGrid
-                  key={`${week.week.week_year}-${week.week.week_number}`}
-                  employees={employees}
-                  week={week.week}
-                  cells={week.cells}
-                  onCellChange={(key, value) => updateCell(index, key, value)}
-                  weekOptions={
-                    isEditing
-                      ? undefined
-                      : selectableWorkWeeks(
-                        workWeeks,
-                        weeks.filter((_, i) => i !== index).map((w) => w.week),
-                      )
-                  }
-                  onSelectWeek={isEditing ? undefined : (newWeek) => changeCardWeek(index, newWeek)}
-                />
+                <View key={`${week.week.week_year}-${week.week.week_number}`} style={styles.activeWeekWrapper}>
+                  <BulkScheduleWeekGrid
+                    employees={employees}
+                    week={week.week}
+                    cells={week.cells}
+                    onCellChange={(key, value) => updateCell(index, key, value)}
+                    weekOptions={
+                      isEditing
+                        ? undefined
+                        : selectableWorkWeeks(
+                          workWeeks,
+                          weeks.filter((_, i) => i !== index).map((w) => w.week),
+                        )
+                    }
+                    onSelectWeek={isEditing ? undefined : (newWeek) => changeCardWeek(index, newWeek)}
+                  />
+                  {isResolvingWeek ? (
+                    <View style={styles.weekLoadingOverlay}>
+                      <ActivityIndicator color={Colors.primary} />
+                    </View>
+                  ) : null}
+                </View>
               ) : (
                 <Pressable
                   key={`${week.week.week_year}-${week.week.week_number}`}
@@ -439,7 +494,12 @@ export function BulkScheduleScreen() {
                   <Text style={styles.addWeekHelperText}>
                     Only future weeks (≥ Week {addWeekOptions[0]?.week_number}) selectable
                   </Text>
-                  <Button label="+ Add Week" onPress={handleAddWeek} disabled={!addWeekDraft} />
+                  <Button
+                    label="+ Add Week"
+                    onPress={handleAddWeek}
+                    disabled={!addWeekDraft || isResolvingWeek}
+                    loading={isResolvingWeek}
+                  />
                 </View>
               </View>
             ) : null}
@@ -518,6 +578,20 @@ const styles = StyleSheet.create({
   },
   loading: {
     marginTop: Spacing.sectionGap,
+  },
+  activeWeekWrapper: {
+    position: 'relative',
+  },
+  weekLoadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: Radius.lg,
   },
   errorText: {
     ...Typography.bodyMd,

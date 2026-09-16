@@ -42,7 +42,9 @@ export function BulkSchedulesTab() {
       ) : (
         <BulkScheduleListSection
           bulkSchedules={bulkSchedules}
-          onSelect={(bulkSchedule) => router.push({ pathname: '/bulk-schedule', params: { uuid: bulkSchedule.uuid } })}
+          onSelect={(bulkSchedule) =>
+            router.push({ pathname: '/bulk-schedule', params: { week_number: bulkSchedule.week_number } })
+          }
         />
       )}
     </>

@@ -231,8 +231,12 @@ export const scheduleApi = {
         const response = await baseApi.get<WorkWeekListResponse>(apiPath(`/employee/work-weeks/`));
         return response.data;
     },
-    updateWeeklyShifts: async (payload: CreateBulkSchedulePayload, uuid: string): Promise<BulkSchedule> => {
-        const response = await baseApi.put(apiPath(`/employee/bulk-schedules/${uuid}/`), payload);
+    updateWeeklyShifts: async (payload: CreateBulkSchedulePayload, week_number: number): Promise<BulkSchedule> => {
+        const response = await baseApi.put(apiPath(`/employee/bulk-schedules/${week_number}/`), payload);
+        return response.data;
+    },
+    getBulkSchedule: async (week_number: number): Promise<BulkSchedule> => {
+        const response = await baseApi.get(apiPath(`/employee/bulk-schedules/${week_number}/`));
         return response.data;
     }
 };
