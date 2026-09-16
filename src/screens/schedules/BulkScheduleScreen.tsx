@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MaterialIcons } from '@expo/vector-icons';
 import { ActionMenu, Button } from '../../components/ui';
 import { Colors } from '../../theme/colors';
@@ -13,8 +13,10 @@ import { employeeApi } from '../../lib/api/employee';
 import {
   BulkScheduleStatus,
   scheduleApi,
+  type BulkSchedule,
   type BulkScheduleItem,
   type CreateBulkSchedulePayload,
+  type Schedule,
   type WorkWeek,
 } from '../../lib/api/schedule';
 import { getApiErrorMessage } from '../../lib/api/base_api';
@@ -33,8 +35,29 @@ interface WeekEntry {
   saveStatus: 'unsaved' | 'draft' | 'published';
 }
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+function startOfDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
 function addDaysToDate(date: Date, days: number): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
+}
+
+// Monday of the week containing `date` — plain calendar-day arithmetic, not
+// ISO week *numbering* (that stays server-owned everywhere else in this
+// feature). Only needed here as a fallback for editing a bulk schedule
+// whose week has already fallen out of the server's "selectable weeks" list
+// (a past week) — see resolveEditWorkWeek below.
+function mondayOf(date: Date): Date {
+  const start = startOfDay(date);
+  const dayOffset = (start.getDay() + 6) % 7;
+  return addDaysToDate(start, -dayOffset);
+}
+
+function toDateOnlyString(date: Date): string {
+  return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
 }
 
 function timeToMinutes(time: string): number {
@@ -42,11 +65,22 @@ function timeToMinutes(time: string): number {
   return (hours || 0) * 60 + (minutes || 0);
 }
 
+function formatTimeHHMM(date: Date): string {
+  return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+}
+
 function toBreakTimeString(minutesInput: string): string {
   const totalMinutes = parseInt(minutesInput, 10) || 0;
   const hours = Math.floor(totalMinutes / 60).toString().padStart(2, '0');
   const minutes = (totalMinutes % 60).toString().padStart(2, '0');
   return `${hours}:${minutes}:00`;
+}
+
+// Inverse of toBreakTimeString — '01:30:00' -> '90'.
+function breakTimeStringToMinutes(breakTime: string): string {
+  const [hours, minutes] = breakTime.split(':').map(Number);
+  const total = (hours || 0) * 60 + (minutes || 0);
+  return total > 0 ? String(total) : '';
 }
 
 function combineDateAndTime(date: Date, time: string): string {
@@ -77,6 +111,51 @@ function addableWorkWeeks(workWeeks: WorkWeek[], usedWeeks: WorkWeek[]): WorkWee
     .filter((index) => index !== -1);
   if (usedIndices.length === 0) return workWeeks;
   return workWeeks.slice(Math.max(...usedIndices) + 1);
+}
+
+// Prefer the server's own selectable-weeks list (keeps start_date/end_date
+// authoritative); fall back to deriving the week's Monday from the earliest
+// existing shift's date when editing a week that's already fallen out of
+// that list (a past week) — plain calendar math, not a re-derived week
+// *number* (that always comes straight from the bulk schedule itself).
+function resolveEditWorkWeek(bulkSchedule: BulkSchedule, workWeeks: WorkWeek[]): WorkWeek | undefined {
+  const fromServerList = workWeeks.find(
+    (week) => week.week_number === bulkSchedule.week_number && week.week_year === bulkSchedule.week_year,
+  );
+  if (fromServerList) return fromServerList;
+  const firstSchedule = bulkSchedule.schedules[0];
+  if (!firstSchedule) return undefined;
+  const weekStart = mondayOf(new Date(firstSchedule.start_time));
+  return {
+    week_number: bulkSchedule.week_number,
+    week_year: bulkSchedule.week_year,
+    start_date: toDateOnlyString(weekStart),
+    end_date: toDateOnlyString(addDaysToDate(weekStart, 6)),
+  };
+}
+
+// Converts an existing bulk schedule's flat Schedule[] back into the cell
+// map the grid edits. Employees no longer active won't have a row to show
+// this in, so a shift for a deactivated employee is silently dropped on
+// next save — same "auto-populate active employees only" boundary already
+// accepted for create, not a new gap introduced by editing.
+function buildCellsFromSchedules(
+  schedules: Schedule[],
+  weekStart: Date,
+): Record<BulkCellKey, BulkCellValue | undefined> {
+  const cells: Record<BulkCellKey, BulkCellValue | undefined> = {};
+  for (const schedule of schedules) {
+    const dayIndex = Math.round((startOfDay(new Date(schedule.start_time)).getTime() - weekStart.getTime()) / MS_PER_DAY);
+    if (dayIndex < 0 || dayIndex > 6) continue;
+    cells[bulkCellKey(schedule.employee.uuid, dayIndex)] = {
+      start: formatTimeHHMM(new Date(schedule.start_time)),
+      end: formatTimeHHMM(new Date(schedule.end_time)),
+      breakMinutes: breakTimeStringToMinutes(schedule.break_time),
+      isScannable: schedule.start_method === 'qr',
+      ...(schedule.work_location ? { workLocationUuid: schedule.work_location.uuid } : {}),
+    };
+  }
+  return cells;
 }
 
 // Every filled cell in `week` becomes one bulk-schedule item. Overnight
@@ -121,13 +200,16 @@ function countScheduledEmployees(week: WeekEntry, employees: BulkEmployeeRow[]):
 }
 
 function saveStatusLabel(status: WeekEntry['saveStatus']): string {
-  if (status === 'published') return 'Published';
-  if (status === 'draft') return 'Draft';
+  if (status === BulkScheduleStatus.PUBLISHED) return 'Published';
+  if (status === BulkScheduleStatus.DRAFT) return 'Draft';
   return 'Unsaved';
 }
 
 export function BulkScheduleScreen() {
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const { uuid } = useLocalSearchParams<{ uuid?: string }>();
+  const isEditing = Boolean(uuid);
 
   const { data: employeeData, isPending: isEmployeesPending, isError: isEmployeesError, error: employeesError } =
     useQuery({ queryKey: ['employees'], queryFn: employeeApi.list });
@@ -141,7 +223,9 @@ export function BulkScheduleScreen() {
 
   // The authoritative, already-past-week-excluded list of selectable weeks
   // — the client never computes "today's week" or a week number itself for
-  // this feature, it's all sourced from here.
+  // this feature, it's all sourced from here. Still fetched when editing:
+  // it's the primary lookup for resolving the week being edited (see
+  // resolveEditWorkWeek).
   const {
     data: workWeekData,
     isPending: isWorkWeeksPending,
@@ -150,26 +234,59 @@ export function BulkScheduleScreen() {
   } = useQuery({ queryKey: ['work-weeks'], queryFn: scheduleApi.listWorkWeeks });
   const workWeeks: WorkWeek[] = workWeekData?.results ?? [];
 
+  // Bulk schedules are cached under one shared key regardless of which
+  // screen fetched them — a user reaching this screen from the Bulk
+  // Schedules tab almost always hits an already-warm cache here.
+  const {
+    data: bulkListData,
+    isPending: isBulkListPending,
+    isError: isBulkListError,
+    error: bulkListError,
+  } = useQuery({ queryKey: ['bulk-schedules'], queryFn: scheduleApi.bulkList, enabled: isEditing });
+  const existingBulkSchedule = bulkListData?.results.find((bulkSchedule) => bulkSchedule.uuid === uuid);
+
   const [weeks, setWeeks] = useState<WeekEntry[]>([]);
-  // Seeds the first week card from the server's own list once it loads —
-  // can't do this synchronously in useState's initializer since it depends
-  // on an async fetch. Guarded to run exactly once (weeks.length stays >=1
-  // forever after, there's no remove-week action).
+  // Seeds the single week card once its data is ready — can't do this
+  // synchronously in useState's initializer since it depends on async
+  // fetches either way. Guarded to run exactly once (weeks.length stays
+  // >=1 forever after — there's no remove-week action, and editing only
+  // ever has the one week).
   useEffect(() => {
-    if (weeks.length === 0 && workWeeks.length > 0) {
+    if (weeks.length > 0) return;
+    if (isEditing) {
+      if (!existingBulkSchedule) return;
+      const resolvedWeek = resolveEditWorkWeek(existingBulkSchedule, workWeeks);
+      if (!resolvedWeek) return;
+      const cells = buildCellsFromSchedules(existingBulkSchedule.schedules, parseDateOnly(resolvedWeek.start_date));
+      setWeeks([
+        {
+          week: resolvedWeek,
+          cells,
+          saveStatus: existingBulkSchedule.status === BulkScheduleStatus.PUBLISHED ? 'published' : 'draft',
+        },
+      ]);
+    } else if (workWeeks.length > 0) {
       setWeeks([{ week: workWeeks[0], cells: {}, saveStatus: 'unsaved' }]);
     }
-  }, [workWeeks, weeks.length]);
+  }, [isEditing, existingBulkSchedule, workWeeks, weeks.length]);
 
   const [activeWeekIndex, setActiveWeekIndex] = useState(0);
   const [addWeekDraft, setAddWeekDraft] = useState<WorkWeek | null>(null);
 
-  const isLoading = isEmployeesPending || isWorkWeeksPending || weeks.length === 0;
+  const isLoading =
+    isEmployeesPending ||
+    isWorkWeeksPending ||
+    (isEditing && isBulkListPending) ||
+    weeks.length === 0;
   const loadError = isEmployeesError
     ? getApiErrorMessage(employeesError, 'Failed to load employees.')
     : isWorkWeeksError
       ? getApiErrorMessage(workWeeksError, 'Failed to load selectable weeks.')
-      : undefined;
+      : isEditing && isBulkListError
+        ? getApiErrorMessage(bulkListError, 'Failed to load this bulk schedule.')
+        : isEditing && !isBulkListPending && !existingBulkSchedule
+          ? 'This bulk schedule could not be found.'
+          : undefined;
 
   const activeWeek = weeks[activeWeekIndex];
   const addWeekOptions = addableWorkWeeks(
@@ -185,7 +302,9 @@ export function BulkScheduleScreen() {
 
   // Changing a card's week resets its cells — they were entered against a
   // different week's actual dates, so carrying them over would silently
-  // misattribute shifts to the wrong days rather than fail loudly.
+  // misattribute shifts to the wrong days rather than fail loudly. Not
+  // reachable at all in edit mode (the grid's change-week control is
+  // hidden there), but kept generic rather than special-cased.
   const changeCardWeek = (weekIndex: number, newWeek: WorkWeek) => {
     setWeeks((prev) =>
       prev.map((week, index) => (index === weekIndex ? { week: newWeek, cells: {}, saveStatus: 'unsaved' } : week)),
@@ -200,7 +319,8 @@ export function BulkScheduleScreen() {
   };
 
   const bulkSaveMutation = useMutation({
-    mutationFn: (payload: CreateBulkSchedulePayload) => scheduleApi.bulkCreate(payload),
+    mutationFn: (payload: CreateBulkSchedulePayload) =>
+      isEditing && uuid ? scheduleApi.updateWeeklyShifts(payload, uuid) : scheduleApi.bulkCreate(payload),
   });
 
   const handleSave = (status: BulkScheduleStatus) => {
@@ -216,9 +336,12 @@ export function BulkScheduleScreen() {
           setWeeks((prev) =>
             prev.map((week, index) => (index === activeWeekIndex ? { ...week, saveStatus: status } : week)),
           );
+          // Bulk Schedules list reads from this same key — refetch it so an
+          // edit (or a brand new roster) shows up there without a manual pull.
+          queryClient.invalidateQueries({ queryKey: ['bulk-schedules'] });
           Alert.alert(
-            status === 'draft' ? 'Draft saved' : 'Schedule published',
-            status === 'draft' ? "This week's roster has been saved as a draft." : 'This week has been published.',
+            status === BulkScheduleStatus.DRAFT ? 'Draft saved' : 'Schedule published',
+            status === BulkScheduleStatus.DRAFT ? "This week's roster has been saved as a draft." : 'This week has been published.',
           );
         },
         onError: (error) => {
@@ -235,8 +358,10 @@ export function BulkScheduleScreen() {
           <MaterialIcons name="arrow-back" size={24} color={Colors.onSurface} />
         </Pressable>
         <View style={styles.headerText}>
-          <Text style={styles.headerTitle}>Bulk Schedule</Text>
-          <Text style={styles.headerSubtitle}>Add weekly rosters</Text>
+          <Text style={styles.headerTitle}>{isEditing ? 'Edit Bulk Schedule' : 'Bulk Schedule'}</Text>
+          <Text style={styles.headerSubtitle}>
+            {isEditing ? "Update this week's roster" : 'Add weekly rosters'}
+          </Text>
         </View>
       </View>
 
@@ -255,11 +380,15 @@ export function BulkScheduleScreen() {
                   week={week.week}
                   cells={week.cells}
                   onCellChange={(key, value) => updateCell(index, key, value)}
-                  weekOptions={selectableWorkWeeks(
-                    workWeeks,
-                    weeks.filter((_, i) => i !== index).map((w) => w.week),
-                  )}
-                  onSelectWeek={(newWeek) => changeCardWeek(index, newWeek)}
+                  weekOptions={
+                    isEditing
+                      ? undefined
+                      : selectableWorkWeeks(
+                        workWeeks,
+                        weeks.filter((_, i) => i !== index).map((w) => w.week),
+                      )
+                  }
+                  onSelectWeek={isEditing ? undefined : (newWeek) => changeCardWeek(index, newWeek)}
                 />
               ) : (
                 <Pressable
@@ -276,38 +405,44 @@ export function BulkScheduleScreen() {
               ),
             )}
 
-            <View style={styles.addWeekCard}>
-              <View style={styles.addWeekHeaderRow}>
-                <MaterialIcons name="add-circle-outline" size={20} color={Colors.primary} />
-                <Text style={styles.addWeekHeaderTitle}>ADD NEXT WEEK</Text>
-              </View>
-              <Text style={styles.addWeekHint}>
-                Week {activeWeek.week.week_number} excluded from future list
-              </Text>
-
-              <ActionMenu
-                trigger={
-                  <View style={styles.weekTrigger}>
-                    <Text style={addWeekDraft ? styles.weekTriggerText : styles.weekTriggerPlaceholder}>
-                      {addWeekDraft ? formatWeekLabel(addWeekDraft) : 'Select future week (e.g. Week 39, Week 40...)'}
-                    </Text>
-                    <MaterialIcons name="expand-more" size={20} color={Colors.onSurfaceVariant} />
-                  </View>
-                }
-                items={addWeekOptions.map((option) => ({
-                  label: formatWeekLabel(option),
-                  icon: 'calendar-today' as const,
-                  onPress: () => setAddWeekDraft(option),
-                }))}
-              />
-
-              <View style={styles.addWeekFooterRow}>
-                <Text style={styles.addWeekHelperText}>
-                  Only future weeks (≥ Week {addWeekOptions[0]?.week_number}) selectable
+            {/* Adding more weeks doesn't make sense while editing one
+                specific existing week — hidden entirely in that mode. */}
+            {!isEditing ? (
+              <View style={styles.addWeekCard}>
+                <View style={styles.addWeekHeaderRow}>
+                  <MaterialIcons name="add-circle-outline" size={20} color={Colors.primary} />
+                  <Text style={styles.addWeekHeaderTitle}>ADD NEXT WEEK</Text>
+                </View>
+                <Text style={styles.addWeekHint}>
+                  Week {activeWeek.week.week_number} excluded from future list
                 </Text>
-                <Button label="+ Add Week" onPress={handleAddWeek} disabled={!addWeekDraft} />
+
+                <ActionMenu
+                  trigger={
+                    <View style={styles.weekTrigger}>
+                      <Text style={addWeekDraft ? styles.weekTriggerText : styles.weekTriggerPlaceholder}>
+                        {addWeekDraft
+                          ? formatWeekLabel(addWeekDraft)
+                          : 'Select future week (e.g. Week 39, Week 40...)'}
+                      </Text>
+                      <MaterialIcons name="expand-more" size={20} color={Colors.onSurfaceVariant} />
+                    </View>
+                  }
+                  items={addWeekOptions.map((option) => ({
+                    label: formatWeekLabel(option),
+                    icon: 'calendar-today' as const,
+                    onPress: () => setAddWeekDraft(option),
+                  }))}
+                />
+
+                <View style={styles.addWeekFooterRow}>
+                  <Text style={styles.addWeekHelperText}>
+                    Only future weeks (≥ Week {addWeekOptions[0]?.week_number}) selectable
+                  </Text>
+                  <Button label="+ Add Week" onPress={handleAddWeek} disabled={!addWeekDraft} />
+                </View>
               </View>
-            </View>
+            ) : null}
           </>
         )}
       </ScrollView>

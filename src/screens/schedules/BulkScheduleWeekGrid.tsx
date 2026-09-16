@@ -73,8 +73,11 @@ export interface BulkScheduleWeekGridProps {
   week: WorkWeek;
   cells: Record<BulkCellKey, BulkCellValue | undefined>;
   onCellChange: (key: BulkCellKey, value: BulkCellValue | undefined) => void;
-  weekOptions: WorkWeek[];
-  onSelectWeek: (week: WorkWeek) => void;
+  /** Omit both to lock the week (editing an existing bulk schedule) — the
+   * header then shows the week as static text instead of a change-week
+   * dropdown, since editing is scoped to exactly this one week. */
+  weekOptions?: WorkWeek[];
+  onSelectWeek?: (week: WorkWeek) => void;
 }
 
 // The always-active, fully expanded week card — collapsed (inactive) weeks
@@ -173,19 +176,25 @@ export function BulkScheduleWeekGrid({
         </View>
       </View>
 
-      <ActionMenu
-        trigger={
-          <View style={styles.weekTrigger}>
-            <Text style={styles.weekTriggerText}>{formatWeekLabel(week)}</Text>
-            <MaterialIcons name="expand-more" size={20} color={Colors.primary} />
-          </View>
-        }
-        items={weekOptions.map((option) => ({
-          label: formatWeekLabel(option),
-          icon: 'calendar-today' as const,
-          onPress: () => onSelectWeek(option),
-        }))}
-      />
+      {weekOptions && onSelectWeek ? (
+        <ActionMenu
+          trigger={
+            <View style={styles.weekTrigger}>
+              <Text style={styles.weekTriggerText}>{formatWeekLabel(week)}</Text>
+              <MaterialIcons name="expand-more" size={20} color={Colors.primary} />
+            </View>
+          }
+          items={weekOptions.map((option) => ({
+            label: formatWeekLabel(option),
+            icon: 'calendar-today' as const,
+            onPress: () => onSelectWeek(option),
+          }))}
+        />
+      ) : (
+        <View style={styles.weekTrigger}>
+          <Text style={styles.weekTriggerText}>{formatWeekLabel(week)}</Text>
+        </View>
+      )}
 
       <View style={styles.tableWrapper}>
         <View style={styles.tableBody}>

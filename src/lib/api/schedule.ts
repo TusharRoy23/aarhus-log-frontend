@@ -2,6 +2,7 @@ import baseApi from './base_api';
 import { apiPath } from './utils';
 import type { ShiftStatus } from '../../theme/status';
 import { Designation } from './designation';
+import { PaginatedResponse } from '../../constants/types';
 
 export type ScheduleEmployee = {
     uuid: string;
@@ -153,6 +154,15 @@ export type ScheduleHistoryResponse = {
     count: number;
 }
 
+export type BulkSchedule = {
+    uuid: string;
+    week_number: number;
+    week_year: number;
+    total_hours: number;
+    status: BulkScheduleStatus;
+    schedules: Schedule[];
+}
+
 export const ScheduleTypes = {
     INDIVIDUAL: 'individual',
     GROUP: 'group',
@@ -209,12 +219,20 @@ export const scheduleApi = {
     },
     // Response shape unconfirmed — backend endpoint doesn't exist yet as of
     // this writing, built ahead of it per the confirmed request contract.
-    bulkCreate: async (payload: CreateBulkSchedulePayload): Promise<unknown> => {
+    bulkCreate: async (payload: CreateBulkSchedulePayload): Promise<BulkSchedule> => {
         const response = await baseApi.post(apiPath(`/employee/bulk-schedules/`), payload);
+        return response.data;
+    },
+    bulkList: async (): Promise<PaginatedResponse<BulkSchedule>> => {
+        const response = await baseApi.get(apiPath('/employee/bulk-schedules/'))
         return response.data;
     },
     listWorkWeeks: async (): Promise<WorkWeekListResponse> => {
         const response = await baseApi.get<WorkWeekListResponse>(apiPath(`/employee/work-weeks/`));
+        return response.data;
+    },
+    updateWeeklyShifts: async (payload: CreateBulkSchedulePayload, uuid: string): Promise<BulkSchedule> => {
+        const response = await baseApi.put(apiPath(`/employee/bulk-schedules/${uuid}/`), payload);
         return response.data;
     }
 };
