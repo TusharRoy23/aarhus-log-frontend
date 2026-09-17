@@ -4,19 +4,19 @@ import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
 
-export type HomeSectionTabKey = 'shifts' | 'draft-shifts' | 'hours' | 'applications' | 'floor';
+export type HomeSectionTabKey = 'shifts' | 'published-schedules' | 'hours' | 'applications' | 'floor';
 
 // Children tabs of the Home screen, not separate routes — switching between
 // them swaps the panel HomeScreen renders below this strip (see
 // HomeScreen's renderActivePanel), the tab bar itself never leaves the
 // screen. Every tab now has a real panel component behind it (even the
 // still-content-less ones render a "coming soon" panel rather than an
-// Alert) — see MyShiftsPanel/PeopleOnFloorPanel/DraftShiftsPanel/
+// Alert) — see MyShiftsPanel/PeopleOnFloorPanel/SchedulePanel/
 // HoursPanel/ApplicationsPanel, each a separate file owning its own data
 // fetching, not a shared switch statement here.
 const TABS: { key: HomeSectionTabKey; label: string }[] = [
   { key: 'shifts', label: 'Shifts' },
-  { key: 'draft-shifts', label: 'Draft Shifts' },
+  { key: 'published-schedules', label: 'Schedules' },
   { key: 'hours', label: 'Hours' },
   { key: 'applications', label: 'Applications' },
   { key: 'floor', label: 'People On the Floor' },

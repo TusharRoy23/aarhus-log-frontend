@@ -9,8 +9,11 @@ import { capitalize } from './schedule-format';
 
 export interface BulkScheduleListSectionProps {
   bulkSchedules: BulkSchedule[];
-  /** Tapping a row calls this with that row's record — used to open it for editing. */
-  onSelect: (bulkSchedule: BulkSchedule) => void;
+  /** Tapping a row calls this with that row's record — used to open it for
+   * editing. Omit for a read-only listing (e.g. an employee-facing "Published
+   * Schedule" view) — rows render as plain, non-pressable cards with no
+   * chevron instead. */
+  onSelect?: (bulkSchedule: BulkSchedule) => void;
 }
 
 function countScheduledEmployees(bulkSchedule: BulkSchedule): number {
@@ -31,7 +34,11 @@ export function BulkScheduleListSection({ bulkSchedules, onSelect }: BulkSchedul
       {bulkSchedules.map((bulkSchedule) => {
         const isPublished = bulkSchedule.status === BulkScheduleStatus.PUBLISHED;
         return (
-          <Pressable key={bulkSchedule.uuid} style={styles.item} onPress={() => onSelect(bulkSchedule)}>
+          <Pressable
+            key={bulkSchedule.uuid}
+            style={styles.item}
+            onPress={onSelect ? () => onSelect(bulkSchedule) : undefined}
+          >
             <View style={styles.itemStrip} />
             <View style={styles.itemBody}>
               <View style={styles.itemTitleRow}>
@@ -48,7 +55,7 @@ export function BulkScheduleListSection({ bulkSchedules, onSelect }: BulkSchedul
                 <Text style={styles.itemMeta}>
                   {Math.round(bulkSchedule.total_hours)} hrs • {countScheduledEmployees(bulkSchedule)} employees
                 </Text>
-                <MaterialIcons name="chevron-right" size={20} color={Colors.onSurfaceVariant} />
+                {onSelect ? <MaterialIcons name="chevron-right" size={20} color={Colors.onSurfaceVariant} /> : null}
               </View>
             </View>
           </Pressable>

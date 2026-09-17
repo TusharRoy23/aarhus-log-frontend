@@ -13,14 +13,13 @@ import { employeeApi } from '../../lib/api/employee';
 import {
   BulkScheduleStatus,
   scheduleApi,
-  type BulkSchedule,
   type BulkScheduleItem,
   type CreateBulkSchedulePayload,
   type Schedule,
   type WorkWeek,
 } from '../../lib/api/schedule';
 import { getApiErrorMessage } from '../../lib/api/base_api';
-import { formatWeekLabel, parseDateOnly } from './schedule-format';
+import { formatWeekLabel, parseDateOnly, resolveBulkScheduleWeek } from './schedule-format';
 import {
   BulkScheduleWeekGrid,
   bulkCellKey,
@@ -43,21 +42,6 @@ function startOfDay(date: Date): Date {
 
 function addDaysToDate(date: Date, days: number): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
-}
-
-// Monday of the week containing `date` — plain calendar-day arithmetic, not
-// ISO week *numbering* (that stays server-owned everywhere else in this
-// feature). Only needed here as a fallback for editing a bulk schedule
-// whose week has already fallen out of the server's "selectable weeks" list
-// (a past week) — see resolveEditWorkWeek below.
-function mondayOf(date: Date): Date {
-  const start = startOfDay(date);
-  const dayOffset = (start.getDay() + 6) % 7;
-  return addDaysToDate(start, -dayOffset);
-}
-
-function toDateOnlyString(date: Date): string {
-  return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
 }
 
 function timeToMinutes(time: string): number {
@@ -113,33 +97,13 @@ function addableWorkWeeks(workWeeks: WorkWeek[], usedWeeks: WorkWeek[]): WorkWee
   return workWeeks.slice(Math.max(...usedIndices) + 1);
 }
 
-// Prefer the server's own selectable-weeks list (keeps start_date/end_date
-// authoritative); fall back to deriving the week's Monday from the earliest
-// existing shift's date when editing a week that's already fallen out of
-// that list (a past week) — plain calendar math, not a re-derived week
-// *number* (that always comes straight from the bulk schedule itself).
-function resolveEditWorkWeek(bulkSchedule: BulkSchedule, workWeeks: WorkWeek[]): WorkWeek | undefined {
-  const fromServerList = workWeeks.find(
-    (week) => week.week_number === bulkSchedule.week_number && week.week_year === bulkSchedule.week_year,
-  );
-  if (fromServerList) return fromServerList;
-  const firstSchedule = bulkSchedule.schedules[0];
-  if (!firstSchedule) return undefined;
-  const weekStart = mondayOf(new Date(firstSchedule.start_time));
-  return {
-    week_number: bulkSchedule.week_number,
-    week_year: bulkSchedule.week_year,
-    start_date: toDateOnlyString(weekStart),
-    end_date: toDateOnlyString(addDaysToDate(weekStart, 6)),
-  };
-}
-
 // Converts an existing bulk schedule's flat Schedule[] back into the cell
 // map the grid edits. Employees no longer active won't have a row to show
 // this in, so a shift for a deactivated employee is silently dropped on
 // next save — same "auto-populate active employees only" boundary already
-// accepted for create, not a new gap introduced by editing.
-function buildCellsFromSchedules(
+// accepted for create, not a new gap introduced by editing. Exported for
+// reuse by BulkScheduleViewScreen's own (read-only) cell population.
+export function buildCellsFromSchedules(
   schedules: Schedule[],
   weekStart: Date,
 ): Record<BulkCellKey, BulkCellValue | undefined> {
@@ -284,7 +248,7 @@ export function BulkScheduleScreen() {
     if (weeks.length > 0 || isSeedingRef.current) return;
     if (isEditing) {
       if (!existingBulkSchedule) return;
-      const resolvedWeek = resolveEditWorkWeek(existingBulkSchedule, workWeeks);
+      const resolvedWeek = resolveBulkScheduleWeek(existingBulkSchedule, workWeeks);
       if (!resolvedWeek) return;
       const cells = buildCellsFromSchedules(existingBulkSchedule.schedules, parseDateOnly(resolvedWeek.start_date));
       setWeeks([

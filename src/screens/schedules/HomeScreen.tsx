@@ -3,7 +3,7 @@ import { ScrollView, StyleSheet } from 'react-native';
 import { AppShell } from '../../components/layout/AppShell';
 import { Spacing } from '../../theme/spacing';
 import { ApplicationsPanel } from './ApplicationsPanel';
-import { DraftShiftsPanel } from './DraftShiftsPanel';
+import { SchedulePanel } from './SchedulePanel';
 import { HomeSectionTabs, type HomeSectionTabKey } from './HomeSectionTabs';
 import { HoursPanel } from './HoursPanel';
 import { MyShiftsPanel } from './MyShiftsPanel';
@@ -26,8 +26,8 @@ export function HomeScreen() {
         return <MyShiftsPanel />;
       case 'floor':
         return <PeopleOnFloorPanel />;
-      case 'draft-shifts':
-        return <DraftShiftsPanel />;
+      case 'published-schedules':
+        return <SchedulePanel />;
       case 'hours':
         return <HoursPanel />;
       case 'applications':

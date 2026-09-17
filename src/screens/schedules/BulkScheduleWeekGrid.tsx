@@ -78,6 +78,11 @@ export interface BulkScheduleWeekGridProps {
    * dropdown, since editing is scoped to exactly this one week. */
   weekOptions?: WorkWeek[];
   onSelectWeek?: (week: WorkWeek) => void;
+  /** Renders every cell as a plain, non-pressable view and skips the cell
+   * editor entirely — for viewing an already-published schedule (e.g. an
+   * employee's read-only "Published Schedule" detail) rather than building
+   * or editing one. `onCellChange` is never invoked in this mode. */
+  readOnly?: boolean;
 }
 
 // The always-active, fully expanded week card — collapsed (inactive) weeks
@@ -94,10 +99,17 @@ export function BulkScheduleWeekGrid({
   onCellChange,
   weekOptions,
   onSelectWeek,
+  readOnly = false,
 }: BulkScheduleWeekGridProps) {
   const days = useMemo(() => getWeekDays(week), [week]);
 
-  const { data: workLocationData } = useQuery({ queryKey: ['work-locations'], queryFn: workLocationApi.list });
+  // No cell editor exists in read-only mode, so this list would otherwise be
+  // fetched for nothing — skip the request entirely.
+  const { data: workLocationData } = useQuery({
+    queryKey: ['work-locations'],
+    queryFn: workLocationApi.list,
+    enabled: !readOnly,
+  });
   const workLocationOptions = (workLocationData?.results ?? [])
     .filter((location) => location.is_active)
     .map((location) => ({ label: `${location.name} (${location.client_name})`, value: location.uuid }));
@@ -169,11 +181,13 @@ export function BulkScheduleWeekGrid({
       <View style={styles.headerRow}>
         <View style={styles.headerTitleRow}>
           <MaterialIcons name="calendar-today" size={18} color={Colors.primary} />
-          <Text style={styles.headerTitle}>SELECT WEEK TO SCHEDULE</Text>
+          <Text style={styles.headerTitle}>{readOnly ? 'PUBLISHED SCHEDULE' : 'SELECT WEEK TO SCHEDULE'}</Text>
         </View>
-        <View style={styles.activeBadge}>
-          <Text style={styles.activeBadgeText}>Active</Text>
-        </View>
+        {!readOnly ? (
+          <View style={styles.activeBadge}>
+            <Text style={styles.activeBadgeText}>Active</Text>
+          </View>
+        ) : null}
       </View>
 
       {weekOptions && onSelectWeek ? (
@@ -233,7 +247,8 @@ export function BulkScheduleWeekGrid({
                       <Pressable
                         key={day.index}
                         style={[styles.dayCell, cell ? styles.dayCellFilled : styles.dayCellOff]}
-                        onPress={() => openEditor(employee, day.index)}
+                        onPress={readOnly ? undefined : () => openEditor(employee, day.index)}
+                        disabled={readOnly}
                       >
                         {cell ? (
                           <>
