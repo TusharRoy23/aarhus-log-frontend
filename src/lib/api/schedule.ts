@@ -2,6 +2,7 @@ import baseApi from './base_api';
 import { apiPath } from './utils';
 import type { ShiftStatus } from '../../theme/status';
 import { Designation } from './designation';
+import { PaginatedResponse } from '../../constants/types';
 
 export type ScheduleEmployee = {
     uuid: string;
@@ -45,6 +46,44 @@ export type CreateSchedulePayload = {
     end_time: string;
     break_time: string;
     is_scannable: boolean;
+};
+
+export type BulkScheduleItem = {
+    employee_uuid: string;
+    work_location_uuid?: string;
+    start_time: string;
+    end_time: string;
+    break_time: string;
+    is_scannable: boolean;
+};
+
+export enum BulkScheduleStatus {
+    DRAFT = 'draft',
+    PUBLISHED = 'published',
+}
+
+export type CreateBulkSchedulePayload = {
+    /** week_number from the matching WorkWeek, not a client-computed value. */
+    week: number;
+    schedules: BulkScheduleItem[];
+    status: BulkScheduleStatus;
+};
+
+// The authoritative list of selectable weeks for Bulk Schedule — the server
+// already excludes past weeks, so the client never needs to compute "today's
+// week" or ISO week numbers itself for this feature.
+export type WorkWeek = {
+    week_number: number;
+    week_year: number;
+    /** 'YYYY-MM-DD' */
+    start_date: string;
+    /** 'YYYY-MM-DD' */
+    end_date: string;
+};
+
+export type WorkWeekListResponse = {
+    results: WorkWeek[];
+    count: number;
 };
 
 export enum ScheduleTimeScope {
@@ -115,6 +154,15 @@ export type ScheduleHistoryResponse = {
     count: number;
 }
 
+export type BulkSchedule = {
+    uuid: string;
+    week_number: number;
+    week_year: number;
+    total_hours: number;
+    status: BulkScheduleStatus;
+    schedules: Schedule[];
+}
+
 export const ScheduleTypes = {
     INDIVIDUAL: 'individual',
     GROUP: 'group',
@@ -167,6 +215,28 @@ export const scheduleApi = {
     },
     upComingShift: async (): Promise<Schedule> => {
         const response = await baseApi.get<Schedule>(apiPath(`/employee/upcoming-schedule/`));
+        return response.data;
+    },
+    // Response shape unconfirmed — backend endpoint doesn't exist yet as of
+    // this writing, built ahead of it per the confirmed request contract.
+    bulkCreate: async (payload: CreateBulkSchedulePayload): Promise<BulkSchedule> => {
+        const response = await baseApi.post(apiPath(`/employee/bulk-schedules/`), payload);
+        return response.data;
+    },
+    bulkList: async (): Promise<PaginatedResponse<BulkSchedule>> => {
+        const response = await baseApi.get(apiPath('/employee/bulk-schedules/'))
+        return response.data;
+    },
+    listWorkWeeks: async (): Promise<WorkWeekListResponse> => {
+        const response = await baseApi.get<WorkWeekListResponse>(apiPath(`/employee/work-weeks/`));
+        return response.data;
+    },
+    updateWeeklyShifts: async (payload: CreateBulkSchedulePayload, week_number: number): Promise<BulkSchedule> => {
+        const response = await baseApi.put(apiPath(`/employee/bulk-schedules/${week_number}/`), payload);
+        return response.data;
+    },
+    getBulkSchedule: async (week_number: number): Promise<BulkSchedule> => {
+        const response = await baseApi.get(apiPath(`/employee/bulk-schedules/${week_number}/`));
         return response.data;
     }
 };

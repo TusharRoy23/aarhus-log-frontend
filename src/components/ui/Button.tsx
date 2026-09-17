@@ -11,7 +11,7 @@ export interface ButtonProps extends Omit<PressableProps, 'style'> {
   label: string;
   icon?: React.ReactNode;
   loading?: boolean;
-  variant?: 'primary' | 'secondary';
+  variant?: 'primary' | 'secondary' | 'destructive';
   style?: ViewStyle;
   /** Hides the button entirely when the current user lacks this permission. Omit to always show (normal behavior). */
   permission?: { resource: Resource; action: keyof PermissionActions };
@@ -28,8 +28,17 @@ export function Button({
   ...pressableProps
 }: ButtonProps) {
   const can = usePermissionCheck();
-  const isPrimary = variant === 'primary';
   const isDisabled = disabled || loading;
+  const variantStyle =
+    variant === 'primary' ? styles.primary : variant === 'destructive' ? styles.destructive : styles.secondary;
+  const labelStyle =
+    variant === 'primary'
+      ? styles.labelPrimary
+      : variant === 'destructive'
+        ? styles.labelDestructive
+        : styles.labelSecondary;
+  const spinnerColor =
+    variant === 'primary' ? Colors.onPrimary : variant === 'destructive' ? Colors.onError : Colors.primary;
 
   if (permission && !can(permission.resource, permission.action)) {
     return null;
@@ -40,7 +49,7 @@ export function Button({
       disabled={isDisabled}
       style={({ pressed }) => [
         styles.base,
-        isPrimary ? styles.primary : styles.secondary,
+        variantStyle,
         isDisabled ? styles.disabled : null,
         pressed ? styles.pressed : null,
         style,
@@ -49,12 +58,10 @@ export function Button({
       {...pressableProps}
     >
       {loading ? (
-        <ActivityIndicator color={isPrimary ? Colors.onPrimary : Colors.primary} />
+        <ActivityIndicator color={spinnerColor} />
       ) : (
         <>
-          <Text style={[styles.label, isPrimary ? styles.labelPrimary : styles.labelSecondary]}>
-            {label}
-          </Text>
+          <Text style={[styles.label, labelStyle]}>{label}</Text>
           {icon}
         </>
       )}
@@ -80,6 +87,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.primary,
   },
+  destructive: {
+    backgroundColor: Colors.error,
+  },
   disabled: {
     opacity: 0.7,
   },
@@ -94,5 +104,8 @@ const styles = StyleSheet.create({
   },
   labelSecondary: {
     color: Colors.primary,
+  },
+  labelDestructive: {
+    color: Colors.onError,
   },
 });

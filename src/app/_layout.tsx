@@ -102,6 +102,8 @@ function AppNavigator() {
           felt sluggish at full speed. */}
       <Stack screenOptions={{ headerShown: false, animation: 'fade', animationDuration: 150 }}>
         <Stack.Screen name="create-shift" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="bulk-schedule" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="bulk-schedule-view" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
         <Stack.Screen name="employee-form" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
         <Stack.Screen
           name="employee-permissions"

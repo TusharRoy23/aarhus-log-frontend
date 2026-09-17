@@ -60,7 +60,7 @@ export function CurrentScheduleSection({
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Current Schedule</Text>
+        <Text style={styles.sectionTitle}>Current Shift</Text>
         {isLoading ? (
           <ActivityIndicator color={Colors.primary} style={styles.loading} />
         ) : errorMessage ? (
@@ -71,7 +71,7 @@ export function CurrentScheduleSection({
           <CurrentShiftCard mode="starting-soon" shift={dueShift} onStart={onStartDueShift} isStarting={isStarting} />
         ) : (
           <View style={styles.emptyCard}>
-            <Text style={styles.emptyText}>No schedule assigned right now.</Text>
+            <Text style={styles.emptyText}>No shift assigned right now.</Text>
             {/* "Open shift" — no assigned schedule at all, so let the
                 employee start ad-hoc work instead of just showing an
                 empty state. Distinct from "Start Shift" above, which
