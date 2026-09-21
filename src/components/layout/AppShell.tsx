@@ -29,6 +29,7 @@ const NAV_KEY_BY_ROUTE: Record<string, BottomNavKey> = {
   '/team': 'menu',
   '/designations': 'menu',
   '/shift-history': 'menu',
+  '/organization-settings': 'menu',
 };
 
 export interface AppShellProps {
@@ -107,10 +108,11 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
       onPress: () => navigateTo('/shift-history'),
     },
     {
-      key: 'team-settings',
+      key: 'organization-settings',
       icon: 'settings',
-      label: 'Team Settings',
-      onPress: () => notImplemented('Team Settings'),
+      label: 'Organization Settings',
+      visible: can(Resources.ORGANIZATION, 'view'),
+      onPress: () => navigateTo('/organization-settings'),
     },
     {
       key: 'reports',
