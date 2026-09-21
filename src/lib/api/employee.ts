@@ -31,6 +31,20 @@ export type UpdateEmployeePayload = CreateEmployeePayload & {
     is_active: boolean;
 };
 
+export type Wage = {
+    uuid: string;
+    employee: Employee;
+    hourly_rate: number;
+    effective_date: string;
+    created_at: string;
+    updated_at: string;
+}
+
+export type CreateWagePayload = {
+    hourly_rate: number;
+    effective_date: string;
+};
+
 const EMPLOYEES_PATH = '/employee/';
 
 export const employeeApi = {
@@ -49,5 +63,13 @@ export const employeeApi = {
     invite: async (email: string): Promise<{ message: string }> => {
         const response = await baseApi.post(apiPath(`${EMPLOYEES_PATH}invite/`), { email });
         return response.data;
-    }
+    },
+    wagesList: async (uuid: string): Promise<PaginatedResponse<Wage>> => {
+        const response = await baseApi.get<PaginatedResponse<Wage>>(apiPath(`${EMPLOYEES_PATH}${uuid}/wages/`));
+        return response.data;
+    },
+    createWage: async (uuid: string, payload: CreateWagePayload): Promise<Wage> => {
+        const response = await baseApi.post<Wage>(apiPath(`${EMPLOYEES_PATH}${uuid}/wages/`), payload);
+        return response.data;
+    },
 };

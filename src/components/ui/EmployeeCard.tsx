@@ -9,6 +9,8 @@ import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
 import { EmployeeStatusColors, type EmployeeStatus } from '../../theme/status';
 
+export type EmployeeCardAction = 'edit' | 'resend-invite' | 'delete' | 'manage-permissions' | 'wages';
+
 export interface EmployeeCardProps {
   name: string;
   email: string;
@@ -16,10 +18,9 @@ export interface EmployeeCardProps {
   status: EmployeeStatus;
   isInvited: boolean;
   avatarUri?: string;
-  onEdit?: () => void;
-  onResendInvite?: () => void;
-  onDelete?: () => void;
-  onManagePermissions?: () => void;
+  /** The card only reports which action was tapped — the caller decides
+   * what that means (which route to push, which mutation to run, etc.). */
+  onAction: (action: EmployeeCardAction) => void;
 }
 
 export function EmployeeCard({
@@ -29,10 +30,7 @@ export function EmployeeCard({
   status,
   isInvited,
   avatarUri,
-  onEdit,
-  onResendInvite,
-  onDelete,
-  onManagePermissions,
+  onAction,
 }: EmployeeCardProps) {
   const statusColor = EmployeeStatusColors[status];
   const statusLabel = status === 'active' ? 'Active' : 'Not Active';
@@ -60,13 +58,18 @@ export function EmployeeCard({
               {
                 label: 'Manage Permissions',
                 icon: 'admin-panel-settings',
-                onPress: () => onManagePermissions?.(),
+                onPress: () => onAction('manage-permissions'),
+              },
+              {
+                label: 'Wages',
+                icon: 'payments',
+                onPress: () => onAction('wages'),
               },
               {
                 label: 'Delete Employee',
                 icon: 'delete',
                 destructive: true,
-                onPress: () => onDelete?.(),
+                onPress: () => onAction('delete'),
               },
             ]}
           />
@@ -80,14 +83,14 @@ export function EmployeeCard({
             </View>
 
             {status === 'inactive' ? (
-              <Pressable style={styles.resendRow} onPress={onResendInvite} hitSlop={8}>
+              <Pressable style={styles.resendRow} onPress={() => onAction('resend-invite')} hitSlop={8}>
                 <MaterialIcons name="mail-outline" size={16} color={Colors.primary} />
                 <Text style={styles.resendText}>{status === 'inactive' && isInvited ? 'Re-Invite' : 'Invite'}</Text>
               </Pressable>
             ) : null}
           </View>
 
-          <Pressable style={styles.editButton} onPress={onEdit}>
+          <Pressable style={styles.editButton} onPress={() => onAction('edit')}>
             <Text style={styles.editButtonText}>Edit</Text>
           </Pressable>
         </View>
