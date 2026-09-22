@@ -9,6 +9,10 @@ export interface TextFieldProps extends TextInputProps {
   label: string;
   icon?: React.ReactNode;
   rightElement?: React.ReactNode;
+  /** Rendered immediately after the label text, grouped tightly with it
+   * (e.g. an `InfoHint`) — distinct from `labelRight`, which is pushed to
+   * the far right of the row (e.g. a "Forgot Password?" link). */
+  labelHint?: React.ReactNode;
   labelRight?: React.ReactNode;
   error?: string;
 }
@@ -17,6 +21,7 @@ export function TextField({
   label,
   icon,
   rightElement,
+  labelHint,
   labelRight,
   error,
   style,
@@ -29,7 +34,10 @@ export function TextField({
   return (
     <View style={styles.container}>
       <View style={styles.labelRow}>
-        <Text style={styles.label}>{label.toUpperCase()}</Text>
+        <View style={styles.labelGroup}>
+          <Text style={styles.label}>{label.toUpperCase()}</Text>
+          {labelHint}
+        </View>
         {labelRight}
       </View>
       <View style={styles.inputWrapper}>
@@ -68,6 +76,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
+  },
+  labelGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.unit,
   },
   label: {
     ...Typography.labelSm,
