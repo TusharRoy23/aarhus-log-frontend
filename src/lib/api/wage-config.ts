@@ -56,6 +56,15 @@ export type CreateWeekendWagePayload = {
     effective_date: string;
 };
 
+export type HourSummary = {
+    date_from: string;
+    date_to: string;
+    total_hours: number;
+    night_shift_hours: number;
+    weekend_hours: number;
+    festival_hours: number;
+}
+
 const FESTIVAL_WAGES_PATH = '/employee/festival-wages/';
 const NIGHT_SHIFT_WAGES_PATH = '/employee/night-shift-wages/';
 const WEEKEND_WAGES_PATH = '/employee/weekend-wages/';
@@ -85,4 +94,10 @@ export const wageConfigApi = {
         const response = await baseApi.post<WeekendWage>(apiPath(WEEKEND_WAGES_PATH), payload);
         return response.data;
     },
+    hourSummary: async (dateFrom: string, dateTo: string): Promise<HourSummary> => {
+        const response = await baseApi.get<HourSummary>(apiPath(`/employee/hours-summary/`), {
+            params: { from: dateFrom, to: dateTo },
+        });
+        return response.data;
+    }
 };
