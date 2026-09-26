@@ -1,4 +1,4 @@
-export type ShiftStatus = 'confirmed' | 'pending' | 'completed' | 'declined';
+export type ShiftStatus = 'confirmed' | 'pending' | 'completed' | 'declined' | 'published' | 'draft';
 
 // Semantic status colors for shift cards. Not part of the core "Kinetic
 // Enterprise" palette (theme/colors.ts) — those are Confirmed/Pending
@@ -8,6 +8,8 @@ export const StatusColors: Record<ShiftStatus, { background: string; text: strin
   pending: { background: '#fffbeb', text: '#b45309', strip: '#f59e0b' },
   completed: { background: '#ecfdf5', text: '#047857', strip: '#10b981' },
   declined: { background: '#fef2f2', text: '#b91c1c', strip: '#f59e0b' },
+  published: { background: '#ecfdf5', text: '#047857', strip: '#10b981' },
+  draft: { background: '#fef2f2', text: '#b91c1c', strip: '#f59e0b' },
 };
 
 // Employment status (`is_active`) — separate from invite status
