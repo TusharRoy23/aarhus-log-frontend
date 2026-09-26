@@ -18,3 +18,4 @@ export * from './EmployeeCard';
 export * from './designation/DesignationCard';
 export * from './Toast';
 export * from './QrScannerModal';
+export * from './InfoHint';

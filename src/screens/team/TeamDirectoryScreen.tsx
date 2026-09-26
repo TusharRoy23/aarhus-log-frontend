@@ -4,12 +4,13 @@ import { useRouter } from 'expo-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { MaterialIcons } from '@expo/vector-icons';
 import { AppShell } from '../../components/layout/AppShell';
-import { Button, EmployeeCard, SearchField } from '../../components/ui';
+import { Button, EmployeeCard, SearchField, type EmployeeCardAction } from '../../components/ui';
 import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
-import { employeeApi } from '../../lib/api/employee';
+import { employeeApi, type Employee } from '../../lib/api/employee';
 import { getApiErrorMessage } from '../../lib/api/base_api';
+import { EmployeeWagesModal } from './EmployeeWagesModal';
 
 function notImplemented(label: string) {
   Alert.alert(label, 'Coming soon.');
@@ -18,6 +19,7 @@ function notImplemented(label: string) {
 export function TeamDirectoryScreen() {
   const router = useRouter();
   const [query, setQuery] = useState('');
+  const [wagesEmployee, setWagesEmployee] = useState<Employee | null>(null);
 
   const { data, isPending, isError, error } = useQuery({
     queryKey: ['employees'],
@@ -46,6 +48,29 @@ export function TeamDirectoryScreen() {
 
   const handleResendInvite = (email: string) => {
     inviteMutation.mutate(email);
+  };
+
+  // EmployeeCard only reports which action was tapped — this screen decides
+  // what each one means (route to push, mutation to run, etc.), so adding a
+  // new card action never means adding a new prop to the card itself.
+  const handleEmployeeAction = (action: EmployeeCardAction, employee: Employee) => {
+    switch (action) {
+      case 'edit':
+        router.push({ pathname: '/employee-form', params: { id: employee.uuid } });
+        break;
+      case 'resend-invite':
+        handleResendInvite(employee.email);
+        break;
+      case 'delete':
+        notImplemented('Delete Employee');
+        break;
+      case 'manage-permissions':
+        router.push({ pathname: '/employee-permissions', params: { uuid: employee.uuid } });
+        break;
+      case 'wages':
+        setWagesEmployee(employee);
+        break;
+    }
   };
 
   return (
@@ -82,17 +107,14 @@ export function TeamDirectoryScreen() {
                 role={employee.designation.name}
                 status={employee.is_active ? 'active' : 'inactive'}
                 isInvited={employee.is_invited}
-                onEdit={() => router.push({ pathname: '/employee-form', params: { id: employee.uuid } })}
-                onResendInvite={() => handleResendInvite(employee.email)}
-                onDelete={() => notImplemented('Delete Employee')}
-                onManagePermissions={() =>
-                  router.push({ pathname: '/employee-permissions', params: { uuid: employee.uuid } })
-                }
+                onAction={(action) => handleEmployeeAction(action, employee)}
               />
             ))}
           </View>
         )}
       </ScrollView>
+
+      <EmployeeWagesModal employee={wagesEmployee} onClose={() => setWagesEmployee(null)} />
     </AppShell>
   );
 }
