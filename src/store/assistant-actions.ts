@@ -1,7 +1,9 @@
-import { assistantApi } from '../lib/api/assistant';
+import { assistantApi, type ConversationResponse } from '../lib/api/assistant';
+import type { PaginatedResponse } from '../constants/types';
 import {
     addMessage,
     appendToMessage,
+    prependMessages,
     resetAssistant,
     setConversation,
     setMessages,
@@ -38,8 +40,8 @@ export const sendAssistantMessage =
         async (dispatch: AppDispatch, getState: () => RootState): Promise<void> => {
             const now = new Date().toISOString();
             const replyId = newId();
-            dispatch(addMessage({ id: newId(), role: 'user', content: text, createdAt: now, status: 'done' }));
-            dispatch(addMessage({ id: replyId, role: 'assistant', content: '', createdAt: now, status: 'streaming' }));
+            dispatch(addMessage({ id: newId(), role: 'user', content: text, created_at: now, status: 'done' }));
+            dispatch(addMessage({ id: replyId, role: 'assistant', content: '', created_at: now, status: 'streaming' }));
 
             const controller = new AbortController();
             activeController = controller;
@@ -53,8 +55,6 @@ export const sendAssistantMessage =
                     if (controller.signal.aborted || !stillCurrent) return;
                     dispatch(setConversation(conversationUuid));
                 }
-
-                console.log('conversationUuid: ', conversationUuid);
 
                 await assistantApi.streamMessage(conversationUuid, text, {
                     signal: controller.signal,
@@ -79,6 +79,36 @@ function groupDateToIso(date: string): string {
     return (Number.isNaN(parsed.getTime()) ? new Date() : parsed).toISOString();
 }
 
+// Shared by loadAssistantHistory (page 1) and loadOlderAssistantMessages
+// (every page after it) — same API shape, same newest-to-oldest-at-every-
+// level ordering that needs reversing for chronological display.
+function mapHistoryPage(page: PaginatedResponse<ConversationResponse>): AssistantMessage[] {
+    return [...page.results]
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .flatMap((group) =>
+            [...group.messages].reverse().map((message) => ({
+                id: message.uuid,
+                role: message.role,
+                content: message.content,
+                created_at: groupDateToIso(message.created_at),
+                status: 'done' as const
+            })),
+        );
+}
+
+// The "next page" cursor for loadOlderAssistantMessages, tagged with the
+// conversation it belongs to. Plain module state (like `activeController`
+// above) rather than Redux — it's an internal fetch-mechanism detail, not
+// something the UI reads directly. Tagging it with `conversationUuid` (rather
+// than relying on some external reset call) is what keeps a stale cursor
+// from a previous conversation/user from ever being used after "new chat" or
+// a logout+re-login in the same app session — base_api.ts can't import this
+// file to reset it directly (would create the same import cycle
+// permissions-actions.ts already documents avoiding), so self-invalidating
+// via the uuid is the robust option rather than a cross-file reset.
+let historyCursor: { conversationUuid: string; nextUrl: string | null } | null = null;
+let isFetchingOlderHistory = false;
+
 /**
  * Two kinds of chat list share the same slice: the LIVE list built locally
  * while the user chats (streamed replies land in it as they arrive), and the
@@ -89,8 +119,8 @@ function groupDateToIso(date: string): string {
  * (logout / new chat wipe it), while a reply is streaming, or if the user
  * sends something while the request is in flight (never clobber live
  * messages), and an empty server result never wipes local messages. Reads the
- * first page only; assumes date groups and the messages inside each are
- * returned oldest-first.
+ * first (most recent) page only; the API returns groups AND the messages
+ * within each group newest-first — both get reversed below for display.
  */
 export const loadAssistantHistory =
     () =>
@@ -106,20 +136,45 @@ export const loadAssistantHistory =
                     current.messages.length !== messageCountAtStart ||
                     current.messages.some((message) => message.status === 'streaming');
                 if (isStale) return;
-                const history: AssistantMessage[] = [...page.results]
-                    .sort((a, b) => a.date.localeCompare(b.date))
-                    .flatMap((group) =>
-                        group.messages.map((message) => ({
-                            id: message.uuid,
-                            role: message.role,
-                            content: message.content,
-                            createdAt: groupDateToIso(group.date),
-                            status: 'done' as const,
-                            hideTime: true,
-                        })),
-                    );
+                historyCursor = { conversationUuid, nextUrl: page.next };
+                const history = mapHistoryPage(page);
                 if (history.length > 0) dispatch(setMessages(history));
             } catch (error) {
                 if (__DEV__) console.warn('Failed to load assistant history', error);
+            }
+        };
+
+/**
+ * Loads the NEXT (older) page and prepends it — triggered by scrolling up.
+ * Unlike loadAssistantHistory, this must NOT replace the list or move the
+ * scroll position: the screen relies on an inverted FlatList, where
+ * appending to the far end of the (reversed) data is naturally
+ * non-disruptive, so the user stays exactly where they were scrolled to.
+ */
+export const loadOlderAssistantMessages =
+    () =>
+        async (dispatch: AppDispatch, getState: () => RootState): Promise<void> => {
+            const { conversationUuid } = getState().assistant;
+            if (
+                !conversationUuid ||
+                isFetchingOlderHistory ||
+                !historyCursor ||
+                historyCursor.conversationUuid !== conversationUuid ||
+                !historyCursor.nextUrl
+            ) {
+                return;
+            }
+            isFetchingOlderHistory = true;
+            try {
+                const page = await assistantApi.getConversations(conversationUuid, historyCursor.nextUrl);
+                // Bail if "new chat"/logout swapped the conversation while this was in flight.
+                if (getState().assistant.conversationUuid !== conversationUuid) return;
+                historyCursor = { conversationUuid, nextUrl: page.next };
+                const olderMessages = mapHistoryPage(page);
+                if (olderMessages.length > 0) dispatch(prependMessages(olderMessages));
+            } catch (error) {
+                if (__DEV__) console.warn('Failed to load older assistant messages', error);
+            } finally {
+                isFetchingOlderHistory = false;
             }
         };

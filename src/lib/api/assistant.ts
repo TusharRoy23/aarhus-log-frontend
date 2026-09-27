@@ -13,6 +13,7 @@ export type ConversationMessage = {
     uuid: string;
     role: 'user' | 'assistant';
     content: string;
+    created_at: string;
 }
 
 export type ConversationResponse = {
@@ -166,8 +167,11 @@ export const assistantApi = {
         const response = await baseApi.post(apiPath(ASSISTANT_PATH));
         return response.data;
     },
-    async getConversations(conversationUuid: string): Promise<PaginatedResponse<ConversationResponse>> {
-        const response = await baseApi.get(apiPath(`${ASSISTANT_PATH}${conversationUuid}/messages/`));
+    // `pageUrl` (from a previous page's `next`) fetches that exact page
+    // directly instead of page 1 — used to load older messages as the user
+    // scrolls up.
+    async getConversations(conversationUuid: string, pageUrl?: string): Promise<PaginatedResponse<ConversationResponse>> {
+        const response = await baseApi.get(pageUrl ?? apiPath(`${ASSISTANT_PATH}${conversationUuid}/messages/`));
         return response.data;
     },
     /** Sends a message and resolves once the streamed reply has fully arrived. */

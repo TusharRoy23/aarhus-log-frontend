@@ -7,11 +7,8 @@ export type AssistantMessage = {
     id: string;
     role: AssistantMessageRole;
     content: string;
-    /** ISO timestamp — messages are grouped by its local calendar date. */
-    createdAt: string;
+    created_at: string;
     status: AssistantMessageStatus;
-    /** History from the server only carries a date per group, not a time per message. */
-    hideTime?: boolean;
 };
 
 type AssistantState = {
@@ -43,6 +40,11 @@ const assistantSlice = createSlice({
         addMessage: (state, action: PayloadAction<AssistantMessage>) => {
             state.messages.push(action.payload);
         },
+        // Older messages loaded by scrolling up — go BEFORE everything
+        // currently loaded, not after.
+        prependMessages: (state, action: PayloadAction<AssistantMessage[]>) => {
+            state.messages = [...action.payload, ...state.messages];
+        },
         // Ignored when the id no longer exists (e.g. a stream still
         // delivering chunks after "new chat" or logout wiped the messages).
         appendToMessage: (state, action: PayloadAction<{ id: string; delta: string }>) => {
@@ -57,6 +59,13 @@ const assistantSlice = createSlice({
     },
 });
 
-export const { setConversation, setMessages, addMessage, appendToMessage, setMessageStatus, resetAssistant } =
-    assistantSlice.actions;
+export const {
+    setConversation,
+    setMessages,
+    addMessage,
+    prependMessages,
+    appendToMessage,
+    setMessageStatus,
+    resetAssistant,
+} = assistantSlice.actions;
 export default assistantSlice.reducer;

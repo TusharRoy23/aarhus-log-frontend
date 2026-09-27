@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -17,7 +18,12 @@ import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
 import type { AssistantMessage } from '../../store/slices/assistant-slice';
-import { loadAssistantHistory, sendAssistantMessage, startNewAssistantChat } from '../../store/assistant-actions';
+import {
+  loadAssistantHistory,
+  loadOlderAssistantMessages,
+  sendAssistantMessage,
+  startNewAssistantChat,
+} from '../../store/assistant-actions';
 
 type ListItem =
   | { type: 'date'; key: string; label: string }
@@ -54,7 +60,7 @@ function buildListItems(messages: AssistantMessage[]): ListItem[] {
   const items: ListItem[] = [];
   let lastDateKey = '';
   for (const message of messages) {
-    const date = new Date(message.createdAt);
+    const date = new Date(message.created_at);
     const dateKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
     if (dateKey !== lastDateKey) {
       items.push({ type: 'date', key: `date-${dateKey}`, label: formatDateHeading(date) });
@@ -82,11 +88,11 @@ function MessageBubble({ message }: { message: AssistantMessage }) {
           </Text>
         )}
         {isError ? <Text style={styles.bubbleErrorText}>Failed to get a response. Please try again.</Text> : null}
-        {message.hideTime ? null : (
-          <Text style={[styles.timeText, isUser && styles.timeTextUser]}>
-            {formatMessageTime(new Date(message.createdAt))}
-          </Text>
-        )}
+        {/* {message.hideTime ? null : ( */}
+        <Text style={[styles.timeText, isUser && styles.timeTextUser]}>
+          {formatMessageTime(new Date(message.created_at))}
+        </Text>
+        {/* )} */}
       </View>
     </View>
   );
@@ -97,18 +103,43 @@ export function AssistantScreen() {
   const messages = useAppSelector((state) => state.assistant.messages);
 
   const [draft, setDraft] = useState('');
+  const [isLoadingOlder, setIsLoadingOlder] = useState(false);
   const listRef = useRef<FlatList<ListItem>>(null);
 
   const items = useMemo(() => buildListItems(messages), [messages]);
   const isStreaming = messages.some((message) => message.status === 'streaming');
+
+  // Inverted list: newest item first in `data`, rendered at the bottom of the FlatList.
+  const invertedData = useMemo(() => [...items].reverse(), [items]);
+
+  // offset 0 on an inverted list IS the bottom — scrolling here is what a
+  // normal chat's "stick to the latest message" behavior reduces to.
+  const scrollToBottom = () => listRef.current?.scrollToOffset({ offset: 0, animated: true });
 
   // The conversation lives in Redux. It's created lazily by the first message
   // (see sendAssistantMessage). Re-entering the screen (e.g. back from another
   // tab) with a conversation still in memory swaps the local list for the
   // server-side history — see loadAssistantHistory.
   useEffect(() => {
-    dispatch(loadAssistantHistory());
+    dispatch(loadAssistantHistory()).then(() => scrollToBottom());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dispatch]);
+
+  // Guards against onEndReached firing repeatedly while the user stays
+  // scrolled near the top — resets once the message count actually changes
+  // (the load finished, or new messages arrived), same pattern DateScroller
+  // uses for its own onEndReached.
+  const hasTriggeredLoadOlderRef = useRef(false);
+  useEffect(() => {
+    hasTriggeredLoadOlderRef.current = false;
+  }, [messages.length]);
+
+  const handleLoadOlder = () => {
+    if (hasTriggeredLoadOlderRef.current || isLoadingOlder) return;
+    hasTriggeredLoadOlderRef.current = true;
+    setIsLoadingOlder(true);
+    dispatch(loadOlderAssistantMessages()).finally(() => setIsLoadingOlder(false));
+  };
 
   const canSend = !isStreaming && draft.trim().length > 0;
 
@@ -117,9 +148,8 @@ export function AssistantScreen() {
     const text = draft.trim();
     setDraft('');
     dispatch(sendAssistantMessage(text));
+    scrollToBottom();
   };
-
-  const scrollToEnd = () => listRef.current?.scrollToEnd({ animated: true });
 
   return (
     <AppShell>
@@ -139,11 +169,17 @@ export function AssistantScreen() {
 
         <FlatList
           ref={listRef}
-          data={items}
+          inverted
+          data={invertedData}
           keyExtractor={(item) => item.key}
           contentContainerStyle={styles.listContent}
           keyboardShouldPersistTaps="handled"
-          onContentSizeChange={scrollToEnd}
+          onEndReached={handleLoadOlder}
+          onEndReachedThreshold={0.4}
+          // In an inverted list the footer (structurally after the last
+          // data item, i.e. the OLDEST loaded message) renders at the visual
+          // TOP — exactly where a "loading older messages" spinner belongs.
+          ListFooterComponent={isLoadingOlder ? <ActivityIndicator color={Colors.primary} style={styles.loadingOlder} /> : null}
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <View style={styles.emptyIcon}>
@@ -241,6 +277,9 @@ const styles = StyleSheet.create({
     maxWidth: 720,
     width: '100%',
     alignSelf: 'center',
+  },
+  loadingOlder: {
+    paddingVertical: Spacing.unit * 3,
   },
   emptyState: {
     flex: 1,
