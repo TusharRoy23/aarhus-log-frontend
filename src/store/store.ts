@@ -17,6 +17,7 @@ import pendingSignupReducer from './slices/pending-signup-slice';
 import authReducer from './slices/auth-slice';
 import permissionsReducer from './slices/permissions-slice';
 import toastReducer from './slices/toast-slice';
+import assistantReducer from './slices/assistant-slice';
 
 const rootReducer = combineReducers({
   pendingLogin: pendingLoginReducer,
@@ -24,6 +25,7 @@ const rootReducer = combineReducers({
   auth: authReducer,
   permissions: permissionsReducer,
   toast: toastReducer,
+  assistant: assistantReducer,
 });
 
 const persistedReducer = persistReducer(
@@ -37,6 +39,7 @@ const persistedReducer = persistReducer(
     // stay out of Redux entirely and live in `tokenStore` (secure-store
     // backed). `toast` is transient UI state, never persisted — a stale
     // error message has no business reappearing on the next app launch.
+    // `assistant` (chat messages) is in-memory only by design too.
     whitelist: ['auth', 'permissions'],
   },
   rootReducer,
