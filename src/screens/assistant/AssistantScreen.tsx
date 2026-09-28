@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   FlatList,
-  KeyboardAvoidingView,
+  Keyboard,
   Platform,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
+  type KeyboardEvent,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { AppShell } from '../../components/layout/AppShell';
@@ -117,13 +119,43 @@ export function AssistantScreen() {
   // AppShell's `hideBottomNav` — those are always reached by pushing, so
   // they always have a way back). Permanently hiding the bar here would
   // strand the user on this tab with no way off it. Instead it's hidden only
-  // while the composer is actually focused — i.e. only while the keyboard
-  // would be covering it — a fixed bottom nav living outside this screen's
-  // own KeyboardAvoidingView is otherwise exactly the kind of competing
-  // fixed element that leaves it unable to push the composer fully clear of
-  // the keyboard.
+  // while the composer is actually focused — i.e. only while the keyboard is
+  // up and would otherwise sit below/behind it, competing for the same
+  // screen space the manual keyboard-height padding below needs.
   const [isComposerFocused, setIsComposerFocused] = useState(false);
   const listRef = useRef<FlatList<ListItem>>(null);
+
+  // Manual keyboard tracking instead of `KeyboardAvoidingView` — its
+  // "padding" behavior turned out unreliable in this screen's nested flex
+  // layout (still covered the composer even on an iOS simulator, where
+  // "padding" is normally the reliable case) despite the FlatList's own
+  // `flex: 1` fix.
+  //
+  // Animated (not a plain useState number) so the padding change is a smooth
+  // slide matching the keyboard's own motion — like every other real chat
+  // app — instead of an instant snap. `useNativeDriver: false` is required
+  // here: padding is a layout property, and the native driver only supports
+  // transform/opacity. `event.duration` (iOS reports the keyboard's own
+  // animation duration; Android's `did` events usually don't) is reused so
+  // this animates in step with the keyboard rather than at a guessed speed,
+  // falling back to 250ms on Android where it's typically absent.
+  const composerBottomPadding = useRef(new Animated.Value(Spacing.unit * 3)).current;
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const animateTo = (toValue: number, duration: number) =>
+      Animated.timing(composerBottomPadding, { toValue, duration: duration || 250, useNativeDriver: false }).start();
+    const showSub = Keyboard.addListener(showEvent, (event: KeyboardEvent) => {
+      animateTo(event.endCoordinates.height, event.duration);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, (event: KeyboardEvent) => {
+      animateTo(Spacing.unit * 3, event.duration);
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const items = useMemo(() => buildListItems(messages), [messages]);
   const isStreaming = messages.some((message) => message.status === 'streaming');
@@ -174,7 +206,7 @@ export function AssistantScreen() {
 
   return (
     <AppShell hideBottomNav={isComposerFocused}>
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <View style={styles.flex}>
         <View style={styles.header}>
           <View style={styles.headerText}>
             <Text style={styles.title}>Assistant</Text>
@@ -230,7 +262,7 @@ export function AssistantScreen() {
           />
         )}
 
-        <View style={styles.composer}>
+        <Animated.View style={[styles.composer, { paddingBottom: composerBottomPadding }]}>
           <View style={styles.composerInner}>
             <TextInput
               style={styles.input}
@@ -251,8 +283,8 @@ export function AssistantScreen() {
               <MaterialIcons name="send" size={20} color={Colors.onPrimary} />
             </Pressable>
           </View>
-        </View>
-      </KeyboardAvoidingView>
+        </Animated.View>
+      </View>
     </AppShell>
   );
 }
@@ -407,7 +439,10 @@ const styles = StyleSheet.create({
     color: Colors.inversePrimary,
   },
   composer: {
-    padding: Spacing.unit * 3,
+    paddingTop: Spacing.unit * 3,
+    paddingHorizontal: Spacing.unit * 3,
+    // paddingBottom is animated (see composerBottomPadding) — deliberately
+    // not set here, so there's only one place that controls it.
     borderTopWidth: 1,
     borderTopColor: Colors.outlineVariant,
     backgroundColor: Colors.surfaceContainerLowest,
