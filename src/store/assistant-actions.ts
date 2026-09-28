@@ -110,23 +110,22 @@ let historyCursor: { conversationUuid: string; nextUrl: string | null } | null =
 let isFetchingOlderHistory = false;
 
 /**
- * Two kinds of chat list share the same slice: the LIVE list built locally
- * while the user chats (streamed replies land in it as they arrive), and the
- * HISTORY list fetched from the server. Called whenever the Assistant screen
- * is (re)entered — e.g. coming back from another tab — while a conversation
- * uuid is still in memory: the server history replaces the local list so
- * what's shown is the stored conversation. Skipped when there's no uuid
- * (logout / new chat wipe it), while a reply is streaming, or if the user
- * sends something while the request is in flight (never clobber live
- * messages), and an empty server result never wipes local messages. Reads the
- * first (most recent) page only; the API returns groups AND the messages
- * within each group newest-first — both get reversed below for display.
+ * Loads the first (most recent) page of server history — but ONLY the very
+ * first time this conversation is seen (`messages.length === 0`), e.g. right
+ * after the app reloads with a persisted `conversationUuid` but no messages
+ * in memory yet. Called on every Assistant screen mount, but is a no-op on
+ * every mount after the first: once anything is loaded — live chat messages,
+ * or older pages already fetched via loadOlderAssistantMessages — it's left
+ * alone. Earlier this re-fetched (and replaced the list) on every re-entry,
+ * which both re-hit the API pointlessly on every tab switch AND reset
+ * `historyCursor` back to page 1, silently discarding any older pages the
+ * user had already scrolled up to load — this is the fix for both.
  */
 export const loadAssistantHistory =
     () =>
         async (dispatch: AppDispatch, getState: () => RootState): Promise<void> => {
             const { conversationUuid, messages } = getState().assistant;
-            if (!conversationUuid || messages.some((message) => message.status === 'streaming')) return;
+            if (!conversationUuid || messages.length > 0) return;
             const messageCountAtStart = messages.length;
             try {
                 const page = await assistantApi.getConversations(conversationUuid);

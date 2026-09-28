@@ -50,7 +50,9 @@ function formatDateHeading(date: Date): string {
 }
 
 function formatMessageTime(date: Date): string {
-  return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  // `hour12: false` forces 24-hour time regardless of locale default (most
+  // locales this app might run under default to 12-hour with AM/PM).
+  return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
 // Messages sharing a local calendar date sit under one date heading, like
@@ -101,9 +103,26 @@ function MessageBubble({ message }: { message: AssistantMessage }) {
 export function AssistantScreen() {
   const dispatch = useAppDispatch();
   const messages = useAppSelector((state) => state.assistant.messages);
+  const conversationUuid = useAppSelector((state) => state.assistant.conversationUuid);
 
   const [draft, setDraft] = useState('');
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
+  // True only when the FIRST (page 1) history fetch is actually going to
+  // happen on this mount — a persisted conversationUuid with nothing loaded
+  // in memory yet (e.g. right after an app reload). Not the same spinner as
+  // `isLoadingOlder` (scroll-up pagination, further down) — this one is
+  // "the whole conversation is still loading," shown in place of the list.
+  const [isLoadingHistory, setIsLoadingHistory] = useState(() => Boolean(conversationUuid) && messages.length === 0);
+  // Assistant is a primary bottom-nav tab (unlike the form screens that use
+  // AppShell's `hideBottomNav` — those are always reached by pushing, so
+  // they always have a way back). Permanently hiding the bar here would
+  // strand the user on this tab with no way off it. Instead it's hidden only
+  // while the composer is actually focused — i.e. only while the keyboard
+  // would be covering it — a fixed bottom nav living outside this screen's
+  // own KeyboardAvoidingView is otherwise exactly the kind of competing
+  // fixed element that leaves it unable to push the composer fully clear of
+  // the keyboard.
+  const [isComposerFocused, setIsComposerFocused] = useState(false);
   const listRef = useRef<FlatList<ListItem>>(null);
 
   const items = useMemo(() => buildListItems(messages), [messages]);
@@ -121,7 +140,9 @@ export function AssistantScreen() {
   // tab) with a conversation still in memory swaps the local list for the
   // server-side history — see loadAssistantHistory.
   useEffect(() => {
-    dispatch(loadAssistantHistory()).then(() => scrollToBottom());
+    dispatch(loadAssistantHistory())
+      .then(() => scrollToBottom())
+      .finally(() => setIsLoadingHistory(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dispatch]);
 
@@ -141,7 +162,7 @@ export function AssistantScreen() {
     dispatch(loadOlderAssistantMessages()).finally(() => setIsLoadingOlder(false));
   };
 
-  const canSend = !isStreaming && draft.trim().length > 0;
+  const canSend = !isStreaming && !isLoadingHistory && draft.trim().length > 0;
 
   const handleSend = () => {
     if (!canSend) return;
@@ -152,7 +173,7 @@ export function AssistantScreen() {
   };
 
   return (
-    <AppShell>
+    <AppShell hideBottomNav={isComposerFocused}>
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.header}>
           <View style={styles.headerText}>
@@ -167,40 +188,47 @@ export function AssistantScreen() {
           ) : null}
         </View>
 
-        <FlatList
-          ref={listRef}
-          inverted
-          data={invertedData}
-          keyExtractor={(item) => item.key}
-          contentContainerStyle={styles.listContent}
-          keyboardShouldPersistTaps="handled"
-          onEndReached={handleLoadOlder}
-          onEndReachedThreshold={0.4}
-          // In an inverted list the footer (structurally after the last
-          // data item, i.e. the OLDEST loaded message) renders at the visual
-          // TOP — exactly where a "loading older messages" spinner belongs.
-          ListFooterComponent={isLoadingOlder ? <ActivityIndicator color={Colors.primary} style={styles.loadingOlder} /> : null}
-          ListEmptyComponent={
-            <View style={styles.emptyState}>
-              <View style={styles.emptyIcon}>
-                <MaterialIcons name="smart-toy" size={28} color={Colors.primary} />
-              </View>
-              <Text style={styles.emptyTitle}>How can I help?</Text>
-              <Text style={styles.emptyText}>Ask a question to start the conversation.</Text>
-            </View>
-          }
-          renderItem={({ item }) =>
-            item.type === 'date' ? (
-              <View style={styles.dateChipRow}>
-                <View style={styles.dateChip}>
-                  <Text style={styles.dateChipText}>{item.label}</Text>
+        {isLoadingHistory ? (
+          <View style={styles.initialLoading}>
+            <ActivityIndicator color={Colors.primary} />
+          </View>
+        ) : (
+          <FlatList
+            ref={listRef}
+            style={styles.list}
+            inverted
+            data={invertedData}
+            keyExtractor={(item) => item.key}
+            contentContainerStyle={styles.listContent}
+            keyboardShouldPersistTaps="handled"
+            onEndReached={handleLoadOlder}
+            onEndReachedThreshold={0.4}
+            // In an inverted list the footer (structurally after the last
+            // data item, i.e. the OLDEST loaded message) renders at the visual
+            // TOP — exactly where a "loading older messages" spinner belongs.
+            ListFooterComponent={isLoadingOlder ? <ActivityIndicator color={Colors.primary} style={styles.loadingOlder} /> : null}
+            ListEmptyComponent={
+              <View style={styles.emptyState}>
+                <View style={styles.emptyIcon}>
+                  <MaterialIcons name="smart-toy" size={28} color={Colors.primary} />
                 </View>
+                <Text style={styles.emptyTitle}>How can I help?</Text>
+                <Text style={styles.emptyText}>Ask a question to start the conversation.</Text>
               </View>
-            ) : (
-              <MessageBubble message={item.message} />
-            )
-          }
-        />
+            }
+            renderItem={({ item }) =>
+              item.type === 'date' ? (
+                <View style={styles.dateChipRow}>
+                  <View style={styles.dateChip}>
+                    <Text style={styles.dateChipText}>{item.label}</Text>
+                  </View>
+                </View>
+              ) : (
+                <MessageBubble message={item.message} />
+              )
+            }
+          />
+        )}
 
         <View style={styles.composer}>
           <View style={styles.composerInner}>
@@ -210,6 +238,8 @@ export function AssistantScreen() {
               placeholderTextColor={Colors.outline}
               value={draft}
               onChangeText={setDraft}
+              onFocus={() => setIsComposerFocused(true)}
+              onBlur={() => setIsComposerFocused(false)}
               multiline
             />
             <Pressable
@@ -270,6 +300,9 @@ const styles = StyleSheet.create({
     color: Colors.primary,
     fontFamily: 'Inter_600SemiBold',
   },
+  list: {
+    flex: 1,
+  },
   listContent: {
     flexGrow: 1,
     padding: Spacing.containerPaddingMobile,
@@ -277,6 +310,11 @@ const styles = StyleSheet.create({
     maxWidth: 720,
     width: '100%',
     alignSelf: 'center',
+  },
+  initialLoading: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   loadingOlder: {
     paddingVertical: Spacing.unit * 3,
