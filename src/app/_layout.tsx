@@ -21,6 +21,7 @@ import { persistor, store } from '../store/store';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { clearAuth } from '../store/slices/auth-slice';
 import { clearPermissions } from '../store/slices/permissions-slice';
+import { resetAssistant } from '../store/slices/assistant-slice';
 import { fetchAndStorePermissions } from '../store/permissions-actions';
 import { tokenStore } from '../lib/api/utils';
 import { isTokenValid, refreshAccessToken } from '../lib/api/refresh_token_strategy';
@@ -71,6 +72,7 @@ function AppNavigator() {
         tokenStore.clear();
         dispatch(clearAuth());
         dispatch(clearPermissions());
+        dispatch(resetAssistant());
         persistor.purge();
         // Same reasoning as the sign-out/401 paths — the query cache
         // outlives Redux state on its own.

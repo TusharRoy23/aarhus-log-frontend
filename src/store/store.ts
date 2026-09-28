@@ -17,6 +17,21 @@ import pendingSignupReducer from './slices/pending-signup-slice';
 import authReducer from './slices/auth-slice';
 import permissionsReducer from './slices/permissions-slice';
 import toastReducer from './slices/toast-slice';
+import assistantReducer from './slices/assistant-slice';
+
+// Nested persist (redux-persist's documented pattern for persisting only
+// part of a slice): only `conversationUuid` survives an app restart, not
+// `messages` — the server is the source of truth for message content
+// (`loadAssistantHistory` refetches it), and re-showing stale local text
+// after a relaunch would just fight with that. This works independently of
+// `persistedReducer`'s own `whitelist` below (which doesn't include
+// `assistant` at all) — a persistReducer nested inside combineReducers
+// bootstraps and persists itself regardless of whether an outer
+// persistReducer's whitelist mentions its key.
+const persistedAssistantReducer = persistReducer(
+  { key: 'assistant', storage: AsyncStorage, blacklist: ['messages'] },
+  assistantReducer,
+);
 
 const rootReducer = combineReducers({
   pendingLogin: pendingLoginReducer,
@@ -24,6 +39,7 @@ const rootReducer = combineReducers({
   auth: authReducer,
   permissions: permissionsReducer,
   toast: toastReducer,
+  assistant: persistedAssistantReducer,
 });
 
 const persistedReducer = persistReducer(
@@ -37,6 +53,8 @@ const persistedReducer = persistReducer(
     // stay out of Redux entirely and live in `tokenStore` (secure-store
     // backed). `toast` is transient UI state, never persisted — a stale
     // error message has no business reappearing on the next app launch.
+    // `assistant` has its own nested persistReducer above (conversationUuid
+    // only), so it's deliberately left out of this whitelist too.
     whitelist: ['auth', 'permissions'],
   },
   rootReducer,

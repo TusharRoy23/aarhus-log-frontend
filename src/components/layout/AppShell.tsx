@@ -13,6 +13,7 @@ import { Spacing } from '../../theme/spacing';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
 import { clearAuth } from '../../store/slices/auth-slice';
 import { clearPermissions, usePermissionCheck } from '../../store/slices/permissions-slice';
+import { resetAssistant } from '../../store/slices/assistant-slice';
 import { Resources } from '../../lib/api/permission';
 import { tokenStore } from '../../lib/api/utils';
 import queryClient from '../../lib/query-client';
@@ -29,6 +30,7 @@ const NAV_KEY_BY_ROUTE: Record<string, BottomNavKey> = {
   '/team': 'menu',
   '/designations': 'menu',
   '/shift-history': 'menu',
+  '/assistant': 'assistant',
   '/organization-settings': 'menu',
 };
 
@@ -128,6 +130,7 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
     tokenStore.clear();
     dispatch(clearAuth());
     dispatch(clearPermissions());
+    dispatch(resetAssistant());
     // The TanStack Query cache is a singleton independent of Redux — it
     // isn't cleared just because auth/permissions are. Without this, a
     // different user logging in right after would see the previous
@@ -147,6 +150,7 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
     if (key === 'menu') setMenuOpen(true);
     else if (key === 'profile') setProfileOpen(true);
     else if (key === 'notifications') notImplemented('Notifications');
+    else if (key === 'assistant') navigateTo('/assistant');
     // 'schedule' is the only remaining real tab — used to call `router.back()`
     // here, assuming the current screen was always reached by pushing on top
     // of `/home`. That assumption doesn't always hold (e.g. no prior

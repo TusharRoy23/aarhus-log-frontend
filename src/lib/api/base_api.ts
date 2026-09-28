@@ -4,6 +4,7 @@ import { tokenStore } from './utils';
 import { store, persistor } from '../../store/store';
 import { clearAuth } from '../../store/slices/auth-slice';
 import { clearPermissions } from '../../store/slices/permissions-slice';
+import { resetAssistant } from '../../store/slices/assistant-slice';
 import queryClient from '../query-client';
 
 // ─── Axios Instance ───────────────────────────────────────────────────────────
@@ -66,6 +67,7 @@ baseApi.interceptors.response.use(
             tokenStore.clear();
             store.dispatch(clearAuth());
             store.dispatch(clearPermissions());
+            store.dispatch(resetAssistant());
             persistor.purge();
             queryClient.clear();
         }
