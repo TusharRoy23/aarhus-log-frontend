@@ -120,6 +120,7 @@ export function BulkScheduleWeekGrid({
   const [draftBreakMinutes, setDraftBreakMinutes] = useState('');
   const [draftWorkLocationUuid, setDraftWorkLocationUuid] = useState('');
   const [draftIsScannable, setDraftIsScannable] = useState(true);
+  const [cellError, setCellError] = useState<string | undefined>();
 
   const openEditor = (employee: BulkEmployeeRow, dayIndex: number) => {
     const existing = cells[bulkCellKey(employee.uuid, dayIndex)];
@@ -128,12 +129,26 @@ export function BulkScheduleWeekGrid({
     setDraftBreakMinutes(existing?.breakMinutes ?? '');
     setDraftWorkLocationUuid(existing?.workLocationUuid ?? '');
     setDraftIsScannable(existing?.isScannable ?? true);
+    setCellError(undefined);
     setEditorTarget({ employee, dayIndex });
   };
   const closeEditor = () => setEditorTarget(null);
 
   const handleSaveCell = () => {
-    if (!editorTarget || !draftStart || !draftEnd) return;
+    if (!editorTarget || !draftStart || !draftEnd) {
+      setCellError('Please set both a start and end time.');
+      return;
+    }
+    // Equal start/end is the only combination actually rejected — a
+    // zero-duration shift. End earlier than start otherwise means an
+    // overnight shift crossing into the next day (e.g. 23:00-07:00), a
+    // deliberately supported case (see cellDurationHours/buildBulkScheduleItems'
+    // day-rollover handling), not an error to block.
+    if (draftStart === draftEnd) {
+      setCellError("Start and end time can't be the same.");
+      return;
+    }
+    setCellError(undefined);
     onCellChange(bulkCellKey(editorTarget.employee.uuid, editorTarget.dayIndex), {
       start: draftStart,
       end: draftEnd,
@@ -324,6 +339,8 @@ export function BulkScheduleWeekGrid({
                     <Text style={styles.scannableLabel}>Scannable QR Code</Text>
                   </View>
                 </View>
+
+                {cellError ? <Text style={styles.errorText}>{cellError}</Text> : null}
 
                 <View style={styles.sheetFooter}>
                   {isEditingExistingCell ? (
@@ -558,6 +575,10 @@ const styles = StyleSheet.create({
   unitLabel: {
     ...Typography.labelSm,
     color: Colors.onSurfaceVariant,
+  },
+  errorText: {
+    ...Typography.bodyMd,
+    color: Colors.error,
   },
   scannableRow: {
     flexDirection: 'row',
