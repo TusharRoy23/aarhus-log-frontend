@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
-import { ActionMenu, Button, Checkbox, DateTimeField, SelectField, TextField } from '../../components/ui';
+import { ActionMenu, Avatar, Button, Checkbox, DateTimeField, SelectField, TextField } from '../../components/ui';
 import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
@@ -11,10 +11,9 @@ import { workLocationApi } from '../../lib/api/work-location';
 import type { WorkWeek } from '../../lib/api/schedule';
 import { formatWeekLabel, parseDateOnly } from './schedule-format';
 
-const DAY_LABELS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
-const HEADER_ROW_HEIGHT = 48;
-const CELL_ROW_HEIGHT = 64;
-const DAY_COLUMN_WIDTH = 84;
+const DAY_LABELS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const DAY_COLUMN_WIDTH = 176;
 
 export interface BulkEmployeeRow {
   uuid: string;
@@ -22,7 +21,21 @@ export interface BulkEmployeeRow {
   designation: string;
 }
 
-export interface BulkCellValue {
+// One shift, for one employee, on one day of the week being edited. Replaces
+// the earlier `Record<"${employeeUuid}_${dayIndex}", cell>` model (one slot
+// per employee per day) — that model couldn't represent more than one shift
+// per employee per day, or render "who's on this day" without first listing
+// every employee as a row. This is a flat list instead: any number of
+// entries per day, per employee (including the same employee twice, e.g. a
+// split shift), grouped for display by day and then by matching start/end
+// time (see groupEntriesByTime below). `id` is a client-only identifier
+// (never sent to the API) so entries sharing the same employee+day+time
+// still have distinct identities to edit/remove individually.
+export interface BulkShiftEntry {
+  id: string;
+  employeeUuid: string;
+  /** 0 (Mon) .. 6 (Sun) */
+  dayIndex: number;
   /** 'HH:MM' */
   start: string;
   /** 'HH:MM' */
@@ -33,11 +46,9 @@ export interface BulkCellValue {
   isScannable: boolean;
 }
 
-/** `${employeeUuid}_${dayIndex}` — dayIndex is 0 (Mon) .. 6 (Sun). */
-export type BulkCellKey = string;
-
-export function bulkCellKey(employeeUuid: string, dayIndex: number): BulkCellKey {
-  return `${employeeUuid}_${dayIndex}`;
+let entryIdCounter = 0;
+function createEntryId(): string {
+  return `entry-${Date.now()}-${entryIdCounter++}`;
 }
 
 function addDaysToDate(date: Date, days: number): Date {
@@ -51,6 +62,10 @@ function getWeekDays(week: WorkWeek): { index: number; date: Date }[] {
   return Array.from({ length: 7 }, (_, index) => ({ index, date: addDaysToDate(start, index) }));
 }
 
+function formatDayDate(date: Date): string {
+  return `${date.getDate()} ${MONTH_SHORT[date.getMonth()]}`;
+}
+
 function timeToMinutes(time: string): number {
   const [hours, minutes] = time.split(':').map(Number);
   return (hours || 0) * 60 + (minutes || 0);
@@ -60,51 +75,76 @@ function timeToMinutes(time: string): number {
 // the mockup's 23:00 -> 07:00 security shift) — same overnight convention
 // `formatTimeRange`/CreateShiftForm already use elsewhere in this codebase,
 // applied here to duration math instead of display.
-function cellDurationHours(cell: BulkCellValue): number {
-  const startMinutes = timeToMinutes(cell.start);
-  let endMinutes = timeToMinutes(cell.end);
+function entryDurationHours(entry: Pick<BulkShiftEntry, 'start' | 'end' | 'breakMinutes'>): number {
+  const startMinutes = timeToMinutes(entry.start);
+  let endMinutes = timeToMinutes(entry.end);
   if (endMinutes <= startMinutes) endMinutes += 24 * 60;
-  const breakMinutes = parseInt(cell.breakMinutes, 10) || 0;
+  const breakMinutes = parseInt(entry.breakMinutes, 10) || 0;
   return Math.max(endMinutes - startMinutes - breakMinutes, 0) / 60;
+}
+
+interface TimeGroup {
+  start: string;
+  end: string;
+  entries: BulkShiftEntry[];
+}
+
+// Entries sharing the exact same start/end on a given day are shown together
+// under one time heading (matching the reference layout — "08:00 - 08:15"
+// with everyone at that time listed underneath), sorted earliest first.
+function groupEntriesByTime(entries: BulkShiftEntry[]): TimeGroup[] {
+  const groups = new Map<string, BulkShiftEntry[]>();
+  for (const entry of entries) {
+    const key = `${entry.start}|${entry.end}`;
+    const existing = groups.get(key);
+    if (existing) existing.push(entry);
+    else groups.set(key, [entry]);
+  }
+  return [...groups.values()]
+    .map((groupEntries) => ({ start: groupEntries[0].start, end: groupEntries[0].end, entries: groupEntries }))
+    .sort((a, b) => timeToMinutes(a.start) - timeToMinutes(b.start));
 }
 
 export interface BulkScheduleWeekGridProps {
   employees: BulkEmployeeRow[];
   week: WorkWeek;
-  cells: Record<BulkCellKey, BulkCellValue | undefined>;
-  onCellChange: (key: BulkCellKey, value: BulkCellValue | undefined) => void;
+  entries: BulkShiftEntry[];
+  onEntriesChange: (entries: BulkShiftEntry[]) => void;
   /** Omit both to lock the week (editing an existing bulk schedule) — the
    * header then shows the week as static text instead of a change-week
    * dropdown, since editing is scoped to exactly this one week. */
   weekOptions?: WorkWeek[];
   onSelectWeek?: (week: WorkWeek) => void;
-  /** Renders every cell as a plain, non-pressable view and skips the cell
-   * editor entirely — for viewing an already-published schedule (e.g. an
-   * employee's read-only "Published Schedule" detail) rather than building
-   * or editing one. `onCellChange` is never invoked in this mode. */
+  /** Renders every day column as plain, non-interactive text and skips the
+   * shift editor entirely — for viewing an already-published schedule (e.g.
+   * an employee's read-only "Published Schedule" detail) rather than
+   * building or editing one. `onEntriesChange` is never invoked in this mode. */
   readOnly?: boolean;
 }
 
+type EditorTarget = { mode: 'add'; dayIndex: number } | { mode: 'edit'; entry: BulkShiftEntry };
+
 // The always-active, fully expanded week card — collapsed (inactive) weeks
 // are a separate, lightweight summary row rendered by BulkScheduleScreen,
-// which never mounts this component for them. All cell state lives in the
-// parent's `cells` map (passed in, reported back via `onCellChange`) rather
-// than local state here, so collapsing/reactivating a week never loses
-// edits — the same lesson already learned twice this session about not
-// trusting mount/unmount to preserve UI state.
+// which never mounts this component for them. All entry state lives in the
+// parent's `entries` array (passed in, reported back via `onEntriesChange`)
+// rather than local state here, so collapsing/reactivating a week never
+// loses edits — the same lesson already learned twice this session about
+// not trusting mount/unmount to preserve UI state.
 export function BulkScheduleWeekGrid({
   employees,
   week,
-  cells,
-  onCellChange,
+  entries,
+  onEntriesChange,
   weekOptions,
   onSelectWeek,
   readOnly = false,
 }: BulkScheduleWeekGridProps) {
   const days = useMemo(() => getWeekDays(week), [week]);
+  const employeeByUuid = useMemo(() => new Map(employees.map((employee) => [employee.uuid, employee])), [employees]);
 
-  // No cell editor exists in read-only mode, so this list would otherwise be
-  // fetched for nothing — skip the request entirely.
+  // No shift editor exists in read-only mode, so this list would otherwise
+  // be fetched for nothing — skip the request entirely.
   const { data: workLocationData } = useQuery({
     queryKey: ['work-locations'],
     queryFn: workLocationApi.list,
@@ -114,69 +154,111 @@ export function BulkScheduleWeekGrid({
     .filter((location) => location.is_active)
     .map((location) => ({ label: `${location.name} (${location.client_name})`, value: location.uuid }));
 
-  const [editorTarget, setEditorTarget] = useState<{ employee: BulkEmployeeRow; dayIndex: number } | null>(null);
+  const [editorTarget, setEditorTarget] = useState<EditorTarget | null>(null);
+  const [draftEmployeeUuid, setDraftEmployeeUuid] = useState('');
   const [draftStart, setDraftStart] = useState('');
   const [draftEnd, setDraftEnd] = useState('');
   const [draftBreakMinutes, setDraftBreakMinutes] = useState('');
   const [draftWorkLocationUuid, setDraftWorkLocationUuid] = useState('');
   const [draftIsScannable, setDraftIsScannable] = useState(true);
-  const [cellError, setCellError] = useState<string | undefined>();
+  const [entryError, setEntryError] = useState<string | undefined>();
 
-  const openEditor = (employee: BulkEmployeeRow, dayIndex: number) => {
-    const existing = cells[bulkCellKey(employee.uuid, dayIndex)];
-    setDraftStart(existing?.start ?? '');
-    setDraftEnd(existing?.end ?? '');
-    setDraftBreakMinutes(existing?.breakMinutes ?? '');
-    setDraftWorkLocationUuid(existing?.workLocationUuid ?? '');
-    setDraftIsScannable(existing?.isScannable ?? true);
-    setCellError(undefined);
-    setEditorTarget({ employee, dayIndex });
+  const openAddEditor = (dayIndex: number) => {
+    setDraftEmployeeUuid('');
+    setDraftStart('');
+    setDraftEnd('');
+    setDraftBreakMinutes('');
+    setDraftWorkLocationUuid('');
+    setDraftIsScannable(true);
+    setEntryError(undefined);
+    setEditorTarget({ mode: 'add', dayIndex });
+  };
+  const openEditEditor = (entry: BulkShiftEntry) => {
+    setDraftEmployeeUuid(entry.employeeUuid);
+    setDraftStart(entry.start);
+    setDraftEnd(entry.end);
+    setDraftBreakMinutes(entry.breakMinutes);
+    setDraftWorkLocationUuid(entry.workLocationUuid ?? '');
+    setDraftIsScannable(entry.isScannable);
+    setEntryError(undefined);
+    setEditorTarget({ mode: 'edit', entry });
   };
   const closeEditor = () => setEditorTarget(null);
 
-  const handleSaveCell = () => {
-    if (!editorTarget || !draftStart || !draftEnd) {
-      setCellError('Please set both a start and end time.');
+  const handleSaveEntry = () => {
+    if (!editorTarget) return;
+    if (!draftEmployeeUuid) {
+      setEntryError('Please select an employee.');
+      return;
+    }
+    if (!draftStart || !draftEnd) {
+      setEntryError('Please set both a start and end time.');
       return;
     }
     // Equal start/end is the only combination actually rejected — a
     // zero-duration shift. End earlier than start otherwise means an
     // overnight shift crossing into the next day (e.g. 23:00-07:00), a
-    // deliberately supported case (see cellDurationHours/buildBulkScheduleItems'
-    // day-rollover handling), not an error to block.
+    // deliberately supported case (see entryDurationHours/
+    // buildBulkScheduleItems' day-rollover handling), not an error to block.
     if (draftStart === draftEnd) {
-      setCellError("Start and end time can't be the same.");
+      setEntryError("Start and end time can't be the same.");
       return;
     }
-    setCellError(undefined);
-    onCellChange(bulkCellKey(editorTarget.employee.uuid, editorTarget.dayIndex), {
+    const dayIndex = editorTarget.mode === 'add' ? editorTarget.dayIndex : editorTarget.entry.dayIndex;
+    const currentId = editorTarget.mode === 'edit' ? editorTarget.entry.id : null;
+    const isDuplicate = entries.some(
+      (entry) =>
+        entry.id !== currentId &&
+        entry.dayIndex === dayIndex &&
+        entry.employeeUuid === draftEmployeeUuid &&
+        entry.start === draftStart &&
+        entry.end === draftEnd,
+    );
+    if (isDuplicate) {
+      setEntryError('This employee already has a shift at this time.');
+      return;
+    }
+    setEntryError(undefined);
+
+    const nextEntry: BulkShiftEntry = {
+      id: currentId ?? createEntryId(),
+      employeeUuid: draftEmployeeUuid,
+      dayIndex,
       start: draftStart,
       end: draftEnd,
       breakMinutes: draftBreakMinutes,
       isScannable: draftIsScannable,
       ...(draftWorkLocationUuid ? { workLocationUuid: draftWorkLocationUuid } : {}),
-    });
+    };
+    onEntriesChange(
+      currentId
+        ? entries.map((entry) => (entry.id === currentId ? nextEntry : entry))
+        : [...entries, nextEntry],
+    );
     closeEditor();
   };
 
-  const handleClearCell = () => {
-    if (!editorTarget) return;
-    onCellChange(bulkCellKey(editorTarget.employee.uuid, editorTarget.dayIndex), undefined);
+  const handleRemoveEntry = () => {
+    if (editorTarget?.mode !== 'edit') return;
+    onEntriesChange(entries.filter((entry) => entry.id !== editorTarget.entry.id));
     closeEditor();
   };
+
+  const entriesByDay = useMemo(() => {
+    const byDay = new Map<number, BulkShiftEntry[]>();
+    for (const day of days) byDay.set(day.index, []);
+    for (const entry of entries) byDay.get(entry.dayIndex)?.push(entry);
+    return byDay;
+  }, [entries, days]);
 
   const { totalHours, scheduledEmployeeCount, hasFullCoverage } = useMemo(() => {
     let hours = 0;
     const scheduledEmployees = new Set<string>();
     const coveredDays = new Set<number>();
-    for (const employee of employees) {
-      for (const day of days) {
-        const cell = cells[bulkCellKey(employee.uuid, day.index)];
-        if (!cell) continue;
-        hours += cellDurationHours(cell);
-        scheduledEmployees.add(employee.uuid);
-        coveredDays.add(day.index);
-      }
+    for (const entry of entries) {
+      hours += entryDurationHours(entry);
+      scheduledEmployees.add(entry.employeeUuid);
+      coveredDays.add(entry.dayIndex);
     }
     return {
       totalHours: hours,
@@ -186,10 +268,7 @@ export function BulkScheduleWeekGrid({
       // placeholder, not a fully-specified business rule.
       hasFullCoverage: coveredDays.size === 7,
     };
-  }, [employees, days, cells]);
-
-  const isEditingExistingCell =
-    !!editorTarget && !!cells[bulkCellKey(editorTarget.employee.uuid, editorTarget.dayIndex)];
+  }, [entries]);
 
   return (
     <View style={styles.card}>
@@ -226,66 +305,62 @@ export function BulkScheduleWeekGrid({
       )}
 
       <View style={styles.tableWrapper}>
-        <View style={styles.tableBody}>
-          <View style={styles.employeeColumn}>
-            <View style={[styles.employeeColumnHeaderCell, styles.headerCellHeight]}>
-              <Text style={styles.employeeColumnHeaderText}>EMPLOYEE</Text>
-            </View>
-            {employees.map((employee) => (
-              <View key={employee.uuid} style={[styles.employeeCell, styles.cellRowHeight]}>
-                <Text style={styles.employeeName} numberOfLines={1}>
-                  {employee.name}
-                </Text>
-                <View style={styles.designationPill}>
-                  <Text style={styles.designationText}>{employee.designation}</Text>
-                </View>
-              </View>
-            ))}
-          </View>
-
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <View>
-              <View style={[styles.dayHeaderRow, styles.headerCellHeight]}>
-                {days.map((day) => (
-                  <View key={day.index} style={styles.dayHeaderCell}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View style={styles.daysRow}>
+            {days.map((day) => {
+              const dayEntries = entriesByDay.get(day.index) ?? [];
+              const timeGroups = groupEntriesByTime(dayEntries);
+              return (
+                <View key={day.index} style={styles.dayColumn}>
+                  <View style={styles.dayHeader}>
                     <Text style={styles.dayHeaderLabel}>{DAY_LABELS[day.index]}</Text>
-                    <Text style={styles.dayHeaderNumber}>{day.date.getDate()}</Text>
+                    <Text style={styles.dayHeaderDate}>{formatDayDate(day.date)}</Text>
                   </View>
-                ))}
-              </View>
 
-              {employees.map((employee) => (
-                <View key={employee.uuid} style={[styles.dayCellsRow, styles.cellRowHeight]}>
-                  {days.map((day) => {
-                    const cell = cells[bulkCellKey(employee.uuid, day.index)];
-                    return (
-                      <Pressable
-                        key={day.index}
-                        style={[styles.dayCell, cell ? styles.dayCellFilled : styles.dayCellOff]}
-                        onPress={readOnly ? undefined : () => openEditor(employee, day.index)}
-                        disabled={readOnly}
-                      >
-                        {cell ? (
-                          <>
-                            <Text style={styles.cellStartText}>{cell.start}</Text>
-                            <Text style={styles.cellEndText}>{cell.end}</Text>
-                          </>
-                        ) : (
-                          <Text style={styles.cellOffText}>Off</Text>
-                        )}
+                  <View style={styles.dayBody}>
+                    {timeGroups.map((group) => (
+                      <View key={`${group.start}-${group.end}`} style={styles.timeGroup}>
+                        <Text style={styles.timeGroupHeader}>
+                          {group.start} - {group.end}
+                        </Text>
+                        {group.entries.map((entry) => {
+                          const employee = employeeByUuid.get(entry.employeeUuid);
+                          return (
+                            <Pressable
+                              key={entry.id}
+                              style={styles.employeeRow}
+                              onPress={readOnly ? undefined : () => openEditEditor(entry)}
+                              disabled={readOnly}
+                            >
+                              <Avatar label={employee?.name ?? '?'} size={24} />
+                              <Text style={styles.employeeRowName} numberOfLines={1}>
+                                {employee?.name ?? 'Unknown employee'}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    ))}
+
+                    {!readOnly ? (
+                      <Pressable style={styles.addTimespanRow} onPress={() => openAddEditor(day.index)}>
+                        <MaterialIcons name="add" size={16} color={Colors.primary} />
+                        <Text style={styles.addTimespanText}>Add more</Text>
                       </Pressable>
-                    );
-                  })}
+                    ) : dayEntries.length === 0 ? (
+                      <Text style={styles.emptyDayText}>No shifts</Text>
+                    ) : null}
+                  </View>
                 </View>
-              ))}
-            </View>
-          </ScrollView>
-        </View>
+              );
+            })}
+          </View>
+        </ScrollView>
 
         <View style={styles.footerRow}>
           <Text style={styles.footerText}>
-            Total: <Text style={styles.footerTextStrong}>{Math.round(totalHours)} hrs</Text> • {employees.length}{' '}
-            Employees scheduled
+            Total: <Text style={styles.footerTextStrong}>{Math.round(totalHours)} hrs</Text> •{' '}
+            {scheduledEmployeeCount} Employees scheduled
           </Text>
           <View style={styles.coverageRow}>
             <View style={[styles.coverageDot, hasFullCoverage && styles.coverageDotFull]} />
@@ -300,16 +375,28 @@ export function BulkScheduleWeekGrid({
           <View style={styles.sheet}>
             {editorTarget ? (
               <>
-                <Text style={styles.sheetTitle}>{editorTarget.employee.name}</Text>
+                <Text style={styles.sheetTitle}>
+                  {editorTarget.mode === 'edit' ? 'Edit Shift' : 'Add Shift'}
+                </Text>
                 <Text style={styles.sheetSubtitle}>
-                  {DAY_LABELS[editorTarget.dayIndex]}{' '}
-                  {addDaysToDate(parseDateOnly(week.start_date), editorTarget.dayIndex).toLocaleDateString(undefined, {
-                    month: 'short',
-                    day: 'numeric',
-                  })}
+                  {DAY_LABELS[editorTarget.mode === 'add' ? editorTarget.dayIndex : editorTarget.entry.dayIndex]}{' '}
+                  {formatDayDate(
+                    addDaysToDate(
+                      parseDateOnly(week.start_date),
+                      editorTarget.mode === 'add' ? editorTarget.dayIndex : editorTarget.entry.dayIndex,
+                    ),
+                  )}
                 </Text>
 
                 <View style={styles.sheetFields}>
+                  <SelectField
+                    label="Employee"
+                    placeholder="Select employee"
+                    value={draftEmployeeUuid}
+                    options={employees.map((employee) => ({ label: employee.name, value: employee.uuid }))}
+                    onChange={setDraftEmployeeUuid}
+                    icon={<MaterialIcons name="person" size={20} color={Colors.outline} />}
+                  />
                   <DateTimeField label="Start" mode="time" value={draftStart} onChange={setDraftStart} />
                   <DateTimeField label="End" mode="time" value={draftEnd} onChange={setDraftEnd} />
                   <TextField
@@ -340,14 +427,14 @@ export function BulkScheduleWeekGrid({
                   </View>
                 </View>
 
-                {cellError ? <Text style={styles.errorText}>{cellError}</Text> : null}
+                {entryError ? <Text style={styles.errorText}>{entryError}</Text> : null}
 
                 <View style={styles.sheetFooter}>
-                  {isEditingExistingCell ? (
-                    <Button label="Clear" variant="destructive" onPress={handleClearCell} style={styles.sheetButton} />
+                  {editorTarget.mode === 'edit' ? (
+                    <Button label="Remove" variant="destructive" onPress={handleRemoveEntry} style={styles.sheetButton} />
                   ) : null}
                   <Button label="Close" variant="secondary" onPress={closeEditor} style={styles.sheetButton} />
-                  <Button label="Save" onPress={handleSaveCell} style={styles.sheetButton} />
+                  <Button label="Save" onPress={handleSaveEntry} style={styles.sheetButton} />
                 </View>
               </>
             ) : null}
@@ -412,103 +499,73 @@ const styles = StyleSheet.create({
     borderRadius: Radius.DEFAULT,
     overflow: 'hidden',
   },
-  tableBody: {
+  daysRow: {
     flexDirection: 'row',
   },
-  headerCellHeight: {
-    height: HEADER_ROW_HEIGHT,
+  dayColumn: {
+    width: DAY_COLUMN_WIDTH,
+    borderLeftWidth: 1,
+    borderLeftColor: Colors.outlineVariant,
   },
-  cellRowHeight: {
-    height: CELL_ROW_HEIGHT,
-  },
-  employeeColumn: {
-    width: 132,
-    borderRightWidth: 1,
-    borderRightColor: Colors.outlineVariant,
-  },
-  employeeColumnHeaderCell: {
-    justifyContent: 'center',
+  dayHeader: {
     paddingHorizontal: Spacing.unit * 3,
+    paddingVertical: Spacing.unit * 3,
     backgroundColor: Colors.surfaceContainerLow,
     borderBottomWidth: 1,
     borderBottomColor: Colors.outlineVariant,
   },
-  employeeColumnHeaderText: {
-    ...Typography.labelSm,
-    color: Colors.onSurfaceVariant,
-  },
-  employeeCell: {
-    justifyContent: 'center',
-    gap: Spacing.unit,
-    paddingHorizontal: Spacing.unit * 3,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.outlineVariant,
-  },
-  employeeName: {
+  dayHeaderLabel: {
     ...Typography.bodyMd,
     fontFamily: 'Inter_600SemiBold',
     color: Colors.onSurface,
   },
-  designationPill: {
-    alignSelf: 'flex-start',
-    backgroundColor: Colors.surfaceContainerHigh,
-    paddingHorizontal: Spacing.unit * 2,
-    paddingVertical: 2,
-    borderRadius: Radius.sm,
-  },
-  designationText: {
+  dayHeaderDate: {
     ...Typography.labelSm,
     color: Colors.onSurfaceVariant,
   },
-  dayHeaderRow: {
-    flexDirection: 'row',
-    backgroundColor: Colors.surfaceContainerLow,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.outlineVariant,
+  dayBody: {
+    padding: Spacing.unit * 2,
+    gap: Spacing.unit * 3,
+    minHeight: 120,
   },
-  dayHeaderCell: {
-    width: DAY_COLUMN_WIDTH,
-    alignItems: 'center',
-    justifyContent: 'center',
+  timeGroup: {
+    gap: Spacing.unit,
   },
-  dayHeaderLabel: {
-    ...Typography.labelSm,
-    color: Colors.onSurfaceVariant,
-  },
-  dayHeaderNumber: {
-    ...Typography.titleMd,
-    color: Colors.onSurface,
-  },
-  dayCellsRow: {
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.outlineVariant,
-  },
-  dayCell: {
-    width: DAY_COLUMN_WIDTH,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderLeftWidth: 1,
-    borderLeftColor: Colors.outlineVariant,
-  },
-  dayCellFilled: {
-    backgroundColor: Colors.secondaryContainer,
-  },
-  dayCellOff: {
-    backgroundColor: Colors.surfaceContainerLow,
-  },
-  cellStartText: {
+  timeGroupHeader: {
     ...Typography.labelSm,
     fontFamily: 'Inter_600SemiBold',
-    color: Colors.onSecondaryContainer,
+    color: Colors.onSurface,
+    paddingHorizontal: Spacing.unit,
   },
-  cellEndText: {
+  employeeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.unit * 2,
+    paddingHorizontal: Spacing.unit,
+    paddingVertical: Spacing.unit * 2,
+    borderRadius: Radius.sm,
+  },
+  employeeRowName: {
     ...Typography.labelSm,
-    color: Colors.onSecondaryContainer,
+    color: Colors.onSurface,
+    flexShrink: 1,
   },
-  cellOffText: {
+  addTimespanRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.unit,
+    paddingHorizontal: Spacing.unit,
+    paddingVertical: Spacing.unit * 2,
+  },
+  addTimespanText: {
+    ...Typography.labelSm,
+    fontFamily: 'Inter_600SemiBold',
+    color: Colors.primary,
+  },
+  emptyDayText: {
     ...Typography.labelSm,
     color: Colors.onSurfaceVariant,
+    paddingHorizontal: Spacing.unit,
   },
   footerRow: {
     flexDirection: 'row',

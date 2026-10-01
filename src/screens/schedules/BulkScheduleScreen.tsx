@@ -20,17 +20,11 @@ import {
 } from '../../lib/api/schedule';
 import { getApiErrorMessage } from '../../lib/api/base_api';
 import { formatWeekLabel, parseDateOnly, resolveBulkScheduleWeek } from './schedule-format';
-import {
-  BulkScheduleWeekGrid,
-  bulkCellKey,
-  type BulkCellKey,
-  type BulkCellValue,
-  type BulkEmployeeRow,
-} from './BulkScheduleWeekGrid';
+import { BulkScheduleWeekGrid, type BulkEmployeeRow, type BulkShiftEntry } from './BulkScheduleWeekGrid';
 
 interface WeekEntry {
   week: WorkWeek;
-  cells: Record<BulkCellKey, BulkCellValue | undefined>;
+  entries: BulkShiftEntry[];
   saveStatus: 'unsaved' | 'draft' | 'published';
 }
 
@@ -97,29 +91,31 @@ function addableWorkWeeks(workWeeks: WorkWeek[], usedWeeks: WorkWeek[]): WorkWee
   return workWeeks.slice(Math.max(...usedIndices) + 1);
 }
 
-// Converts an existing bulk schedule's flat Schedule[] back into the cell
-// map the grid edits. Employees no longer active won't have a row to show
-// this in, so a shift for a deactivated employee is silently dropped on
-// next save — same "auto-populate active employees only" boundary already
-// accepted for create, not a new gap introduced by editing. Exported for
-// reuse by BulkScheduleViewScreen's own (read-only) cell population.
-export function buildCellsFromSchedules(
-  schedules: Schedule[],
-  weekStart: Date,
-): Record<BulkCellKey, BulkCellValue | undefined> {
-  const cells: Record<BulkCellKey, BulkCellValue | undefined> = {};
+// Converts an existing bulk schedule's flat Schedule[] back into the entry
+// list the grid edits. Employees no longer active won't appear in the
+// employee picker, but their existing entries still render (looked up by
+// uuid, falling back to "Unknown employee" if not found) — the shift is only
+// silently dropped from the payload on next save (see buildBulkScheduleItems),
+// same "auto-populate active employees only" boundary already accepted for
+// create, not a new gap introduced by editing. Exported for reuse by
+// BulkScheduleViewScreen's own (read-only) entry population.
+export function buildEntriesFromSchedules(schedules: Schedule[], weekStart: Date): BulkShiftEntry[] {
+  const entries: BulkShiftEntry[] = [];
   for (const schedule of schedules) {
     const dayIndex = Math.round((startOfDay(new Date(schedule.start_time)).getTime() - weekStart.getTime()) / MS_PER_DAY);
     if (dayIndex < 0 || dayIndex > 6) continue;
-    cells[bulkCellKey(schedule.employee.uuid, dayIndex)] = {
+    entries.push({
+      id: schedule.uuid,
+      employeeUuid: schedule.employee.uuid,
+      dayIndex,
       start: formatTimeHHMM(new Date(schedule.start_time)),
       end: formatTimeHHMM(new Date(schedule.end_time)),
       breakMinutes: breakTimeStringToMinutes(schedule.break_time),
       isScannable: schedule.start_method === 'qr',
       ...(schedule.work_location ? { workLocationUuid: schedule.work_location.uuid } : {}),
-    };
+    });
   }
-  return cells;
+  return entries;
 }
 
 // Picking a week — either the active card's own change-week dropdown, or
@@ -133,56 +129,52 @@ async function fetchWeekEntry(week: WorkWeek): Promise<WeekEntry> {
     const existing = await scheduleApi.getBulkSchedule(week.week_number);
     return {
       week,
-      cells: buildCellsFromSchedules(existing.schedules, parseDateOnly(week.start_date)),
+      entries: buildEntriesFromSchedules(existing.schedules, parseDateOnly(week.start_date)),
       saveStatus: existing.status === BulkScheduleStatus.PUBLISHED ? 'published' : 'draft',
     };
   } catch {
     // No bulk schedule exists yet for this week (404), or a transient fetch
     // error — either way, start this week blank rather than blocking the
     // flow. Re-picking the same week retries the lookup.
-    return { week, cells: {}, saveStatus: 'unsaved' };
+    return { week, entries: [], saveStatus: 'unsaved' };
   }
 }
 
-// Every filled cell in `week` becomes one bulk-schedule item. Overnight
-// shifts (end time-of-day <= start time-of-day) roll the end onto the next
-// calendar day — same convention used for display elsewhere in this app,
-// applied here to the actual payload dates. Dates come from the week's own
-// authoritative `start_date` (parsed as local midnight, not handed straight
-// to `new Date()` — a bare date-only string parses as UTC otherwise).
+// Every entry in `week` becomes one bulk-schedule item — entries for an
+// employee no longer active are silently dropped (same "auto-populate active
+// employees only" boundary this screen has always had). Overnight shifts
+// (end time-of-day <= start time-of-day) roll the end onto the next calendar
+// day — same convention used for display elsewhere in this app, applied here
+// to the actual payload dates. Dates come from the week's own authoritative
+// `start_date` (parsed as local midnight, not handed straight to `new
+// Date()` — a bare date-only string parses as UTC otherwise).
 function buildBulkScheduleItems(week: WeekEntry, employees: BulkEmployeeRow[]): BulkScheduleItem[] {
   const weekStart = parseDateOnly(week.week.start_date);
+  const activeEmployeeUuids = new Set(employees.map((employee) => employee.uuid));
   const items: BulkScheduleItem[] = [];
-  employees.forEach((employee) => {
-    for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
-      const cell = week.cells[bulkCellKey(employee.uuid, dayIndex)];
-      if (!cell) continue;
-      const startDate = addDaysToDate(weekStart, dayIndex);
-      const endDate = timeToMinutes(cell.end) <= timeToMinutes(cell.start) ? addDaysToDate(startDate, 1) : startDate;
-      items.push({
-        employee_uuid: employee.uuid,
-        start_time: combineDateAndTime(startDate, cell.start),
-        end_time: combineDateAndTime(endDate, cell.end),
-        break_time: cell.breakMinutes ? toBreakTimeString(cell.breakMinutes) : '',
-        is_scannable: cell.isScannable,
-        ...(cell.workLocationUuid ? { work_location_uuid: cell.workLocationUuid } : {}),
-      });
-    }
-  });
+  for (const entry of week.entries) {
+    if (!activeEmployeeUuids.has(entry.employeeUuid)) continue;
+    const startDate = addDaysToDate(weekStart, entry.dayIndex);
+    const endDate =
+      timeToMinutes(entry.end) <= timeToMinutes(entry.start) ? addDaysToDate(startDate, 1) : startDate;
+    items.push({
+      employee_uuid: entry.employeeUuid,
+      start_time: combineDateAndTime(startDate, entry.start),
+      end_time: combineDateAndTime(endDate, entry.end),
+      break_time: entry.breakMinutes ? toBreakTimeString(entry.breakMinutes) : '',
+      is_scannable: entry.isScannable,
+      ...(entry.workLocationUuid ? { work_location_uuid: entry.workLocationUuid } : {}),
+    });
+  }
   return items;
 }
 
 function countScheduledEmployees(week: WeekEntry, employees: BulkEmployeeRow[]): number {
-  let count = 0;
-  for (const employee of employees) {
-    for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
-      if (week.cells[bulkCellKey(employee.uuid, dayIndex)]) {
-        count += 1;
-        break;
-      }
-    }
-  }
-  return count;
+  const activeEmployeeUuids = new Set(employees.map((employee) => employee.uuid));
+  const scheduled = new Set(
+    week.entries.filter((entry) => activeEmployeeUuids.has(entry.employeeUuid)).map((entry) => entry.employeeUuid),
+  );
+  return scheduled.size;
 }
 
 function saveStatusLabel(status: WeekEntry['saveStatus']): string {
@@ -250,11 +242,11 @@ export function BulkScheduleScreen() {
       if (!existingBulkSchedule) return;
       const resolvedWeek = resolveBulkScheduleWeek(existingBulkSchedule, workWeeks);
       if (!resolvedWeek) return;
-      const cells = buildCellsFromSchedules(existingBulkSchedule.schedules, parseDateOnly(resolvedWeek.start_date));
+      const entries = buildEntriesFromSchedules(existingBulkSchedule.schedules, parseDateOnly(resolvedWeek.start_date));
       setWeeks([
         {
           week: resolvedWeek,
-          cells,
+          entries,
           saveStatus: existingBulkSchedule.status === BulkScheduleStatus.PUBLISHED ? 'published' : 'draft',
         },
       ]);
@@ -296,10 +288,8 @@ export function BulkScheduleScreen() {
     weeks.map((week) => week.week),
   );
 
-  const updateCell = (weekIndex: number, key: BulkCellKey, value: BulkCellValue | undefined) => {
-    setWeeks((prev) =>
-      prev.map((week, index) => (index === weekIndex ? { ...week, cells: { ...week.cells, [key]: value } } : week)),
-    );
+  const updateEntries = (weekIndex: number, nextEntries: BulkShiftEntry[]) => {
+    setWeeks((prev) => prev.map((week, index) => (index === weekIndex ? { ...week, entries: nextEntries } : week)));
   };
 
   const [isResolvingWeek, setIsResolvingWeek] = useState(false);
@@ -352,6 +342,16 @@ export function BulkScheduleScreen() {
           // Bulk Schedules list reads from this same key — refetch it so an
           // edit (or a brand new roster) shows up there without a manual pull.
           queryClient.invalidateQueries({ queryKey: ['bulk-schedules'] });
+          // A bulk create/update also creates/updates individual Schedule
+          // records under the hood — invalidating just `['bulk-schedules']`
+          // left every individual-schedule list (Home's "My Schedule" tab,
+          // "All Schedules", Manage Schedules' Individual tab — each keyed
+          // `['schedules', ...different params]`) showing stale data until
+          // its own staleTime happened to expire. `queryClient.invalidateQueries`
+          // matches by key PREFIX, not exact equality, so `['schedules']`
+          // alone invalidates every one of those variants in one call — same
+          // convention CreateShiftScreen's own create/update already uses.
+          queryClient.invalidateQueries({ queryKey: ['schedules'] });
           Alert.alert(
             status === BulkScheduleStatus.DRAFT ? 'Draft saved' : 'Schedule published',
             status === BulkScheduleStatus.DRAFT ? "This week's roster has been saved as a draft." : 'This week has been published.',
@@ -391,8 +391,8 @@ export function BulkScheduleScreen() {
                   <BulkScheduleWeekGrid
                     employees={employees}
                     week={week.week}
-                    cells={week.cells}
-                    onCellChange={(key, value) => updateCell(index, key, value)}
+                    entries={week.entries}
+                    onEntriesChange={(nextEntries) => updateEntries(index, nextEntries)}
                     weekOptions={
                       isEditing
                         ? undefined

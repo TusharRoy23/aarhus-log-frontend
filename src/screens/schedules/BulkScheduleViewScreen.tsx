@@ -9,7 +9,7 @@ import { Spacing } from '../../theme/spacing';
 import { scheduleApi, type Schedule, type WorkWeek } from '../../lib/api/schedule';
 import { getApiErrorMessage } from '../../lib/api/base_api';
 import { formatWeekLabel, parseDateOnly, resolveBulkScheduleWeek } from './schedule-format';
-import { buildCellsFromSchedules } from './BulkScheduleScreen';
+import { buildEntriesFromSchedules } from './BulkScheduleScreen';
 import { BulkScheduleWeekGrid, type BulkEmployeeRow } from './BulkScheduleWeekGrid';
 
 // One row per employee that actually has a shift in this bulk schedule —
@@ -90,8 +90,8 @@ export function BulkScheduleViewScreen() {
           <BulkScheduleWeekGrid
             employees={employeesFromSchedules(bulkSchedule.schedules)}
             week={resolvedWeek}
-            cells={buildCellsFromSchedules(bulkSchedule.schedules, parseDateOnly(resolvedWeek.start_date))}
-            onCellChange={() => {}}
+            entries={buildEntriesFromSchedules(bulkSchedule.schedules, parseDateOnly(resolvedWeek.start_date))}
+            onEntriesChange={() => {}}
             readOnly
           />
         ) : null}

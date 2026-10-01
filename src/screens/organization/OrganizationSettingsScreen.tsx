@@ -10,39 +10,43 @@ import { FestivalWagesTab } from './FestivalWagesTab';
 import { NightShiftWagesTab } from './NightShiftWagesTab';
 import { WeekendWagesTab } from './WeekendWagesTab';
 
-// Thin shell: owns just the tab switch. Each tab's actual content (its own
-// query/mutation) lives in its own file and is only mounted while that tab
-// is active, so this screen never fetches anything itself — same pattern as
-// ManageShiftsScreen's Individual/Bulk Schedules tabs. The tab bar itself
-// (OrganizationSettingsTabs) is a full-bleed strip directly under AppShell,
-// outside the centered/padded ScrollView — same placement as HomeScreen's
-// own HomeSectionTabs, not nested inside the scrolling content.
+const TAB_CONTENT: Record<OrganizationSettingsTabKey, { title: string, subtitle: string; Component: () => React.JSX.Element | null }> = {
+  general: {
+    title: "General Settings",
+    subtitle: "Manage your organization's contact info and weekly schedule.",
+    Component: GeneralSettingsTab,
+  },
+  'festival-wages': {
+    title: "Festival Wages",
+    subtitle: 'Configure extra pay for shifts on specific calendar dates.',
+    Component: FestivalWagesTab,
+  },
+  'night-shift-wages': {
+    title: "Night Shift Wages",
+    subtitle: 'Configure extra pay for shifts within a night time window.',
+    Component: NightShiftWagesTab,
+  },
+  'weekend-wages': {
+    title: "Weekend Wages",
+    subtitle: "Configure extra pay for shifts on your organization's weekend days.",
+    Component: WeekendWagesTab,
+  },
+};
+
 export function OrganizationSettingsScreen() {
   const [activeTab, setActiveTab] = useState<OrganizationSettingsTabKey>('general');
-
-  function renderActiveTab() {
-    switch (activeTab) {
-      case 'general':
-        return <GeneralSettingsTab />;
-      case 'festival-wages':
-        return <FestivalWagesTab />;
-      case 'night-shift-wages':
-        return <NightShiftWagesTab />;
-      case 'weekend-wages':
-        return <WeekendWagesTab />;
-    }
-  }
+  const { title, subtitle, Component } = TAB_CONTENT[activeTab];
 
   return (
     <AppShell>
       <OrganizationSettingsTabs activeKey={activeTab} onSelect={setActiveTab} />
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.header}>
-          <Text style={styles.title}>Organization Settings</Text>
-          <Text style={styles.subtitle}>Manage your organization's info and wage configuration.</Text>
+          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.subtitle}>{subtitle}</Text>
         </View>
 
-        {renderActiveTab()}
+        <Component />
       </ScrollView>
     </AppShell>
   );
