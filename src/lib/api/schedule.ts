@@ -154,6 +154,11 @@ export type ScheduleHistoryResponse = {
     count: number;
 }
 
+export type ScheduleDailyCost = {
+    date: string;
+    total_estimated_pay: number;
+}
+
 export type BulkSchedule = {
     uuid: string;
     week_number: number;
@@ -161,6 +166,17 @@ export type BulkSchedule = {
     total_hours: number;
     status: BulkScheduleStatus;
     schedules: Schedule[];
+}
+
+export type ShiftPlanPayload = {
+    start_time: string;
+    end_time: string;
+    employees: string[];
+}
+
+export type DayCostEstimatePayload = {
+    date: string;
+    shift: ShiftPlanPayload[];
 }
 
 export const ScheduleTypes = {
@@ -172,6 +188,7 @@ export const ScheduleTypes = {
 export type ScheduleType = (typeof ScheduleTypes)[keyof typeof ScheduleTypes];
 
 const SCHEDULES_PATH = '/employee/schedules/';
+const BULK_SCHEDULES_PATH = '/employee/bulk-schedules/';
 
 export const scheduleApi = {
     list: async (params?: ScheduleListParams): Promise<ScheduleListResponse> => {
@@ -220,11 +237,11 @@ export const scheduleApi = {
     // Response shape unconfirmed — backend endpoint doesn't exist yet as of
     // this writing, built ahead of it per the confirmed request contract.
     bulkCreate: async (payload: CreateBulkSchedulePayload): Promise<BulkSchedule> => {
-        const response = await baseApi.post(apiPath(`/employee/bulk-schedules/`), payload);
+        const response = await baseApi.post(apiPath(BULK_SCHEDULES_PATH), payload);
         return response.data;
     },
     bulkList: async (): Promise<PaginatedResponse<BulkSchedule>> => {
-        const response = await baseApi.get(apiPath('/employee/bulk-schedules/'))
+        const response = await baseApi.get(apiPath(BULK_SCHEDULES_PATH));
         return response.data;
     },
     listWorkWeeks: async (): Promise<WorkWeekListResponse> => {
@@ -232,11 +249,20 @@ export const scheduleApi = {
         return response.data;
     },
     updateWeeklyShifts: async (payload: CreateBulkSchedulePayload, week_number: number): Promise<BulkSchedule> => {
-        const response = await baseApi.put(apiPath(`/employee/bulk-schedules/${week_number}/`), payload);
+        const response = await baseApi.put(apiPath(`${BULK_SCHEDULES_PATH}${week_number}/`), payload);
         return response.data;
     },
     getBulkSchedule: async (week_number: number): Promise<BulkSchedule> => {
-        const response = await baseApi.get(apiPath(`/employee/bulk-schedules/${week_number}/`));
+        const response = await baseApi.get(apiPath(`${BULK_SCHEDULES_PATH}${week_number}/`));
+        return response.data;
+    },
+    getDailyCosts: async (week_number: number): Promise<PaginatedResponse<ScheduleDailyCost>> => {
+        const response = await baseApi.get<PaginatedResponse<ScheduleDailyCost>>(apiPath(`${BULK_SCHEDULES_PATH}${week_number}/daily-costs/`));
+        return response.data;
+    },
+    estimateDailyCosts: async (dayCostEstimatePayload: DayCostEstimatePayload): Promise<ScheduleDailyCost> => {
+        console.log('dayCostEstimatePayload: ', dayCostEstimatePayload);
+        const response = await baseApi.post<ScheduleDailyCost>(apiPath(`/employee/day-cost-estimate/`), dayCostEstimatePayload);
         return response.data;
     }
 };

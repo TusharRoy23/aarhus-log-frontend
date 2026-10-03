@@ -60,6 +60,16 @@ export function BulkScheduleViewScreen() {
   });
   const workWeeks: WorkWeek[] = workWeekData?.results ?? [];
 
+  // A separate, best-effort endpoint from the bulk schedule itself — fetched
+  // fresh whenever this week is opened, not embedded in `bulkSchedule`.
+  const { data: dailyCostsData } = useQuery({
+    queryKey: ['bulk-schedule-daily-costs', weekNumber],
+    queryFn: () => scheduleApi.getDailyCosts(weekNumber),
+    enabled: Number.isFinite(weekNumber),
+  });
+
+  console.log('dailyCostsData: ', dailyCostsData);
+
   const resolvedWeek = bulkSchedule ? resolveBulkScheduleWeek(bulkSchedule, workWeeks) : undefined;
 
   const isLoading = isBulkSchedulePending || isWorkWeeksPending;
@@ -91,8 +101,9 @@ export function BulkScheduleViewScreen() {
             employees={employeesFromSchedules(bulkSchedule.schedules)}
             week={resolvedWeek}
             entries={buildEntriesFromSchedules(bulkSchedule.schedules, parseDateOnly(resolvedWeek.start_date))}
-            onEntriesChange={() => {}}
+            onEntriesChange={() => { }}
             readOnly
+            dailyCosts={dailyCostsData?.results ?? []}
           />
         ) : null}
       </ScrollView>

@@ -16,16 +16,25 @@ import {
   type BulkScheduleItem,
   type CreateBulkSchedulePayload,
   type Schedule,
+  type ScheduleDailyCost,
+  type ShiftPlanPayload,
   type WorkWeek,
 } from '../../lib/api/schedule';
 import { getApiErrorMessage } from '../../lib/api/base_api';
 import { formatWeekLabel, parseDateOnly, resolveBulkScheduleWeek } from './schedule-format';
-import { BulkScheduleWeekGrid, type BulkEmployeeRow, type BulkShiftEntry } from './BulkScheduleWeekGrid';
+import {
+  BulkScheduleWeekGrid,
+  groupEntriesByTime,
+  toDateOnlyString,
+  type BulkEmployeeRow,
+  type BulkShiftEntry,
+} from './BulkScheduleWeekGrid';
 
 interface WeekEntry {
   week: WorkWeek;
   entries: BulkShiftEntry[];
   saveStatus: 'unsaved' | 'draft' | 'published';
+  dailyCosts: ScheduleDailyCost[];
 }
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -100,6 +109,7 @@ function addableWorkWeeks(workWeeks: WorkWeek[], usedWeeks: WorkWeek[]): WorkWee
 // create, not a new gap introduced by editing. Exported for reuse by
 // BulkScheduleViewScreen's own (read-only) entry population.
 export function buildEntriesFromSchedules(schedules: Schedule[], weekStart: Date): BulkShiftEntry[] {
+  if (!schedules || schedules.length === 0) return [];
   const entries: BulkShiftEntry[] = [];
   for (const schedule of schedules) {
     const dayIndex = Math.round((startOfDay(new Date(schedule.start_time)).getTime() - weekStart.getTime()) / MS_PER_DAY);
@@ -118,26 +128,54 @@ export function buildEntriesFromSchedules(schedules: Schedule[], weekStart: Date
   return entries;
 }
 
+function changedDayIndexes(before: BulkShiftEntry[], after: BulkShiftEntry[]): number[] {
+  return [0, 1, 2, 3, 4, 5, 6].filter(
+    (dayIndex) =>
+      JSON.stringify(before.filter((entry) => entry.dayIndex === dayIndex)) !==
+      JSON.stringify(after.filter((entry) => entry.dayIndex === dayIndex)),
+  );
+}
+
+function shiftPlanForGroup(group: { start: string; end: string; entries: BulkShiftEntry[] }): ShiftPlanPayload {
+  return {
+    start_time: group.start,
+    end_time: group.end,
+    employees: group.entries.map((entry) => entry.employeeUuid),
+  };
+}
+
+async function fetchDailyCosts(weekNumber: number): Promise<ScheduleDailyCost[]> {
+  try {
+    return (await scheduleApi.getDailyCosts(weekNumber)).results;
+  } catch {
+    return [];
+  }
+}
+
 // Picking a week — either the active card's own change-week dropdown, or
 // the "Add Next Week" flow — now checks the backend for an already-existing
 // bulk schedule on that week and loads it if found, rather than always
 // starting blank. This keeps picking an already-scheduled week from
 // silently building a second, conflicting roster under the same week
-// number: it becomes an edit of the existing one instead.
+// number: it becomes an edit of the existing one instead. Daily costs are
+// fetched every time a week is opened/selected this way (not cached off the
+// bulk schedule response), since the org may later make showing them
+// optional/configurable independent of the schedule data itself.
 async function fetchWeekEntry(week: WorkWeek): Promise<WeekEntry> {
-  try {
-    const existing = await scheduleApi.getBulkSchedule(week.week_number);
-    return {
-      week,
-      entries: buildEntriesFromSchedules(existing.schedules, parseDateOnly(week.start_date)),
-      saveStatus: existing.status === BulkScheduleStatus.PUBLISHED ? 'published' : 'draft',
-    };
-  } catch {
-    // No bulk schedule exists yet for this week (404), or a transient fetch
-    // error — either way, start this week blank rather than blocking the
-    // flow. Re-picking the same week retries the lookup.
-    return { week, entries: [], saveStatus: 'unsaved' };
-  }
+  const [dailyCosts, scheduleResult] = await Promise.all([
+    fetchDailyCosts(week.week_number),
+    scheduleApi.getBulkSchedule(week.week_number).then(
+      (existing) => ({
+        entries: buildEntriesFromSchedules(existing.schedules, parseDateOnly(week.start_date)),
+        saveStatus: (existing.status === BulkScheduleStatus.PUBLISHED ? 'published' : 'draft') as WeekEntry['saveStatus'],
+      }),
+      // No bulk schedule exists yet for this week (404), or a transient
+      // fetch error — either way, start this week blank rather than
+      // blocking the flow. Re-picking the same week retries the lookup.
+      () => ({ entries: [] as BulkShiftEntry[], saveStatus: 'unsaved' as WeekEntry['saveStatus'] }),
+    ),
+  ]);
+  return { week, dailyCosts, ...scheduleResult };
 }
 
 // Every entry in `week` becomes one bulk-schedule item — entries for an
@@ -243,13 +281,18 @@ export function BulkScheduleScreen() {
       const resolvedWeek = resolveBulkScheduleWeek(existingBulkSchedule, workWeeks);
       if (!resolvedWeek) return;
       const entries = buildEntriesFromSchedules(existingBulkSchedule.schedules, parseDateOnly(resolvedWeek.start_date));
-      setWeeks([
-        {
-          week: resolvedWeek,
-          entries,
-          saveStatus: existingBulkSchedule.status === BulkScheduleStatus.PUBLISHED ? 'published' : 'draft',
-        },
-      ]);
+      isSeedingRef.current = true;
+      fetchDailyCosts(existingBulkSchedule.week_number).then((dailyCosts) => {
+        setWeeks([
+          {
+            week: resolvedWeek,
+            entries,
+            saveStatus: existingBulkSchedule.status === BulkScheduleStatus.PUBLISHED ? 'published' : 'draft',
+            dailyCosts,
+          },
+        ]);
+        isSeedingRef.current = false;
+      });
     } else if (workWeeks.length > 0) {
       // The auto-selected first week is still a "week being used to create
       // a bulk schedule" — check the backend the same way an explicit
@@ -288,8 +331,42 @@ export function BulkScheduleScreen() {
     weeks.map((week) => week.week),
   );
 
+  const setDayCost = (weekIndex: number, date: string, total: number | undefined) => {
+    setWeeks((prev) =>
+      prev.map((week, index) => {
+        if (index !== weekIndex) return week;
+        const others = week.dailyCosts.filter((cost) => cost.date !== date);
+        return { ...week, dailyCosts: total === undefined ? others : [...others, { date, total_estimated_pay: total }] };
+      }),
+    );
+  };
+
   const updateEntries = (weekIndex: number, nextEntries: BulkShiftEntry[]) => {
-    setWeeks((prev) => prev.map((week, index) => (index === weekIndex ? { ...week, entries: nextEntries } : week)));
+    const { week, entries: previousEntries } = weeks[weekIndex];
+    setWeeks((prev) => prev.map((card, index) => (index === weekIndex ? { ...card, entries: nextEntries } : card)));
+    if (isEditing) {
+      fetchDailyCosts(week.week_number).then((dailyCosts) => {
+        setWeeks((prev) => prev.map((card, index) => (index === weekIndex ? { ...card, dailyCosts } : card)));
+      });
+      return;
+    }
+    // Nothing is saved for an unsaved week, so the server has no costs to
+    // read — each changed day is priced from its own shifts instead.
+    const weekStart = parseDateOnly(week.start_date);
+    for (const dayIndex of changedDayIndexes(previousEntries, nextEntries)) {
+      const day = addDaysToDate(weekStart, dayIndex);
+      const date = toDateOnlyString(day);
+      const dayEntries = nextEntries.filter((entry) => entry.dayIndex === dayIndex);
+      if (dayEntries.length === 0) {
+        setDayCost(weekIndex, date, undefined);
+        continue;
+      }
+      const shift = groupEntriesByTime(dayEntries).map(shiftPlanForGroup);
+      scheduleApi
+        .estimateDailyCosts({ date, shift })
+        .then((estimate) => setDayCost(weekIndex, date, estimate.total_estimated_pay))
+        .catch(() => setDayCost(weekIndex, date, undefined));
+    }
   };
 
   const [isResolvingWeek, setIsResolvingWeek] = useState(false);
@@ -335,10 +412,22 @@ export function BulkScheduleScreen() {
     bulkSaveMutation.mutate(
       { week: activeWeek.week.week_number, schedules: items, status },
       {
-        onSuccess: () => {
+        onSuccess: (savedBulkSchedule) => {
           setWeeks((prev) =>
-            prev.map((week, index) => (index === activeWeekIndex ? { ...week, saveStatus: status } : week)),
+            prev.map((week, index) =>
+              index === activeWeekIndex
+                ? { ...week, saveStatus: status }
+                : week,
+            ),
           );
+          // Costs are recalculated server-side on save — refresh this
+          // week's daily-costs lookup separately so the grid picks up the
+          // latest numbers without blocking the rest of this callback.
+          fetchDailyCosts(savedBulkSchedule.week_number).then((dailyCosts) => {
+            setWeeks((prev) =>
+              prev.map((week, index) => (index === activeWeekIndex ? { ...week, dailyCosts } : week)),
+            );
+          });
           // Bulk Schedules list reads from this same key — refetch it so an
           // edit (or a brand new roster) shows up there without a manual pull.
           queryClient.invalidateQueries({ queryKey: ['bulk-schedules'] });
@@ -402,6 +491,7 @@ export function BulkScheduleScreen() {
                         )
                     }
                     onSelectWeek={isEditing ? undefined : (newWeek) => changeCardWeek(index, newWeek)}
+                    dailyCosts={week.dailyCosts}
                   />
                   {isResolvingWeek ? (
                     <View style={styles.weekLoadingOverlay}>

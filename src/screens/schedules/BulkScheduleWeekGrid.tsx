@@ -8,7 +8,7 @@ import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
 import { workLocationApi } from '../../lib/api/work-location';
-import type { WorkWeek } from '../../lib/api/schedule';
+import type { ScheduleDailyCost, WorkWeek } from '../../lib/api/schedule';
 import { formatWeekLabel, parseDateOnly } from './schedule-format';
 
 const DAY_LABELS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -66,6 +66,17 @@ function formatDayDate(date: Date): string {
   return `${date.getDate()} ${MONTH_SHORT[date.getMonth()]}`;
 }
 
+export function toDateOnlyString(date: Date): string {
+  return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
+}
+
+// No currency symbol — this app has no org-level currency setting anywhere
+// yet, so showing one would mean guessing at it. Two decimal places is the
+// only formatting applied.
+function formatCost(amount: number): string {
+  return amount.toFixed(2);
+}
+
 function timeToMinutes(time: string): number {
   const [hours, minutes] = time.split(':').map(Number);
   return (hours || 0) * 60 + (minutes || 0);
@@ -92,7 +103,7 @@ interface TimeGroup {
 // Entries sharing the exact same start/end on a given day are shown together
 // under one time heading (matching the reference layout — "08:00 - 08:15"
 // with everyone at that time listed underneath), sorted earliest first.
-function groupEntriesByTime(entries: BulkShiftEntry[]): TimeGroup[] {
+export function groupEntriesByTime(entries: BulkShiftEntry[]): TimeGroup[] {
   const groups = new Map<string, BulkShiftEntry[]>();
   for (const entry of entries) {
     const key = `${entry.start}|${entry.end}`;
@@ -110,6 +121,12 @@ export interface BulkScheduleWeekGridProps {
   week: WorkWeek;
   entries: BulkShiftEntry[];
   onEntriesChange: (entries: BulkShiftEntry[]) => void;
+  /** Server-computed estimated pay per day — only available once this week
+   * has an actual saved BulkSchedule (a brand-new, never-saved week has
+   * none, since the client can't compute this itself: it depends on each
+   * employee's base rate plus the wage-config rules, neither of which the
+   * client has). Omit/empty just means no cost row shows for that day. */
+  dailyCosts?: ScheduleDailyCost[];
   /** Omit both to lock the week (editing an existing bulk schedule) — the
    * header then shows the week as static text instead of a change-week
    * dropdown, since editing is scoped to exactly this one week. */
@@ -139,9 +156,15 @@ export function BulkScheduleWeekGrid({
   weekOptions,
   onSelectWeek,
   readOnly = false,
+  dailyCosts,
 }: BulkScheduleWeekGridProps) {
   const days = useMemo(() => getWeekDays(week), [week]);
   const employeeByUuid = useMemo(() => new Map(employees.map((employee) => [employee.uuid, employee])), [employees]);
+  const costByDate = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const cost of dailyCosts ?? []) map.set(cost.date, cost.total_estimated_pay);
+    return map;
+  }, [dailyCosts]);
 
   // No shift editor exists in read-only mode, so this list would otherwise
   // be fetched for nothing — skip the request entirely.
@@ -310,11 +333,20 @@ export function BulkScheduleWeekGrid({
             {days.map((day) => {
               const dayEntries = entriesByDay.get(day.index) ?? [];
               const timeGroups = groupEntriesByTime(dayEntries);
+              const dayCost = costByDate.get(toDateOnlyString(day.date));
               return (
                 <View key={day.index} style={styles.dayColumn}>
                   <View style={styles.dayHeader}>
                     <Text style={styles.dayHeaderLabel}>{DAY_LABELS[day.index]}</Text>
-                    <Text style={styles.dayHeaderDate}>{formatDayDate(day.date)}</Text>
+                    <View style={styles.dayHeaderMetaRow}>
+                      <Text style={styles.dayHeaderDate}>{formatDayDate(day.date)}</Text>
+                      {dayCost !== undefined ? (
+                        <View style={styles.dayCostRow}>
+                          <MaterialIcons name="payments" size={12} color={Colors.onSurfaceVariant} />
+                          <Text style={styles.dayCostText}>{formatCost(+dayCost)}</Text>
+                        </View>
+                      ) : null}
+                    </View>
                   </View>
 
                   <View style={styles.dayBody}>
@@ -521,6 +553,22 @@ const styles = StyleSheet.create({
   },
   dayHeaderDate: {
     ...Typography.labelSm,
+    color: Colors.onSurfaceVariant,
+  },
+  dayHeaderMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.unit * 2,
+  },
+  dayCostRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.unit,
+  },
+  dayCostText: {
+    ...Typography.labelSm,
+    fontFamily: 'Inter_600SemiBold',
     color: Colors.onSurfaceVariant,
   },
   dayBody: {
