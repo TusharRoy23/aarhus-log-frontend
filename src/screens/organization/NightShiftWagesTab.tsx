@@ -1,13 +1,14 @@
 import { useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MaterialIcons } from '@expo/vector-icons';
-import { Button, DateTimeField, InfoHint, TextField } from '../../components/ui';
+import { Button, DateTimeField, InfoHint, MultiSelectField, TextField } from '../../components/ui';
 import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
-import { wageConfigApi, type CreateNightShiftWagePayload } from '../../lib/api/wage-config';
+import { employeeApi } from '../../lib/api/employee';
+import { wageConfigApi, type NightShiftWage, type NightShiftWagePayload } from '../../lib/api/wage-config';
 import { getApiErrorMessage } from '../../lib/api/base_api';
 
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -19,14 +20,44 @@ function formatDateOnly(dateStr: string): string {
   return `${day} ${MONTH_SHORT[month - 1]} ${year}`;
 }
 
+// 'YYYY-MM-DD' for today, local time. Plain string comparison against
+// `effective_date` is safe (both are 'YYYY-MM-DD', which sorts
+// lexicographically = chronologically) — no Date parsing needed, so no risk
+// of the bare-date-string-parses-as-UTC bug other date helpers in this app
+// guard against. Duplicated locally rather than importing `todayDateString`
+// from schedules' schedule-format.ts — same "different domain, trivial
+// formatter, not worth a cross-domain import" call already made for
+// EmployeeWagesModal.
+function todayDateString(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')}`;
+}
+
+// Only a wage that hasn't taken effect yet can be changed — one that's
+// already active may already have been used to compute pay, so editing/
+// deleting it after the fact isn't offered.
+function isUpcoming(wage: NightShiftWage): boolean {
+  return wage.effective_date > todayDateString();
+}
+
 function sanitizeRateInput(value: string): string {
   return value.replace(/[^0-9.]/g, '');
 }
 
+// Empty `employees` means this wage applies to everyone by default — the
+// same "empty = all" convention the create form's multi-select uses.
+function formatAppliesTo(employees: { first_name: string; last_name: string }[]): string {
+  if (employees.length === 0) return 'All employees';
+  if (employees.length <= 2) return employees.map((employee) => employee.first_name).join(', ');
+  return `${employees.length} employees`;
+}
+
+const EMPTY_FORM = { startTime: '', endTime: '', hourlyRate: '', effectiveDate: '', employeeUuids: [] as string[] };
+
 // The "Night Shift Wages" tab on Organization Settings — its own
-// query/mutation against /employee/night-shift-wages/, list + create only
-// (no update/delete given). Mounted only while this tab is active, so
-// mounting itself is the fetch trigger (no `enabled` flag needed).
+// query/mutations against /employee/night-shift-wages/. Mounted only while
+// this tab is active, so mounting itself is the fetch trigger (no `enabled`
+// flag needed).
 export function NightShiftWagesTab() {
   const queryClient = useQueryClient();
   const { data, isPending, isError, error } = useQuery({
@@ -35,24 +66,74 @@ export function NightShiftWagesTab() {
   });
   const wages = [...(data?.results ?? [])].sort((a, b) => b.effective_date.localeCompare(a.effective_date));
 
-  const [startTime, setStartTime] = useState('');
-  const [endTime, setEndTime] = useState('');
-  const [hourlyRate, setHourlyRate] = useState('');
-  const [effectiveDate, setEffectiveDate] = useState('');
+  // Same active-employees source BulkScheduleScreen uses for its own
+  // employee picker — reused here for the "which employees does this apply
+  // to" multi-select.
+  const { data: employeeData } = useQuery({ queryKey: ['employees'], queryFn: employeeApi.list });
+  const employeeOptions = (employeeData?.results ?? [])
+    .filter((employee) => employee.is_active)
+    .map((employee) => ({ label: `${employee.first_name} ${employee.last_name}`, value: employee.uuid }));
+
+  // One form serves both "add" and "edit" — same "one form, two modes"
+  // pattern DesignationFormScreen/EmployeeFormScreen already use elsewhere
+  // in this app, just inline in a card instead of a separate route.
+  // `editingWageUuid` null = add mode.
+  const [editingWageUuid, setEditingWageUuid] = useState<string | null>(null);
+  const [startTime, setStartTime] = useState(EMPTY_FORM.startTime);
+  const [endTime, setEndTime] = useState(EMPTY_FORM.endTime);
+  const [hourlyRate, setHourlyRate] = useState(EMPTY_FORM.hourlyRate);
+  const [effectiveDate, setEffectiveDate] = useState(EMPTY_FORM.effectiveDate);
+  const [employeeUuids, setEmployeeUuids] = useState<string[]>(EMPTY_FORM.employeeUuids);
   const [validationError, setValidationError] = useState<string | undefined>();
 
+  const resetForm = () => {
+    setEditingWageUuid(null);
+    setStartTime(EMPTY_FORM.startTime);
+    setEndTime(EMPTY_FORM.endTime);
+    setHourlyRate(EMPTY_FORM.hourlyRate);
+    setEffectiveDate(EMPTY_FORM.effectiveDate);
+    setEmployeeUuids(EMPTY_FORM.employeeUuids);
+    setValidationError(undefined);
+  };
+
+  const startEdit = (wage: NightShiftWage) => {
+    setEditingWageUuid(wage.uuid);
+    setStartTime(wage.start_time);
+    setEndTime(wage.end_time);
+    setHourlyRate(String(wage.hourly_rate));
+    setEffectiveDate(wage.effective_date);
+    setEmployeeUuids(wage.employees.map((employee) => employee.uuid));
+    setValidationError(undefined);
+  };
+
   const createMutation = useMutation({
-    mutationFn: (payload: CreateNightShiftWagePayload) => wageConfigApi.createNightShiftWage(payload),
+    mutationFn: (payload: NightShiftWagePayload) => wageConfigApi.createNightShiftWage(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['night-shift-wages'] });
-      setStartTime('');
-      setEndTime('');
-      setHourlyRate('');
-      setEffectiveDate('');
+      resetForm();
     },
   });
 
-  const handleAdd = () => {
+  const updateMutation = useMutation({
+    mutationFn: (payload: NightShiftWagePayload) => wageConfigApi.updateNightShiftWage(editingWageUuid as string, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['night-shift-wages'] });
+      resetForm();
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => wageConfigApi.deleteNightShiftWage(editingWageUuid as string),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['night-shift-wages'] });
+      resetForm();
+    },
+  });
+
+  const isEditing = editingWageUuid !== null;
+  const isSaving = createMutation.isPending || updateMutation.isPending;
+
+  const handleSubmit = () => {
     const rate = parseFloat(hourlyRate);
     if (!startTime || !endTime) {
       setValidationError('Please set both a start and end time.');
@@ -67,19 +148,33 @@ export function NightShiftWagesTab() {
       return;
     }
     setValidationError(undefined);
-    createMutation.mutate({ start_time: startTime, end_time: endTime, hourly_rate: rate, effective_date: effectiveDate });
+    const payload: NightShiftWagePayload = {
+      start_time: startTime,
+      end_time: endTime,
+      hourly_rate: rate,
+      effective_date: effectiveDate,
+      ...(employeeUuids.length > 0 ? { employee_uuids: employeeUuids } : {}),
+    };
+    if (isEditing) updateMutation.mutate(payload);
+    else createMutation.mutate(payload);
   };
 
   const combinedError =
     validationError ??
-    (createMutation.isError ? getApiErrorMessage(createMutation.error, 'Failed to add night shift wage.') : undefined);
+    (createMutation.isError
+      ? getApiErrorMessage(createMutation.error, 'Failed to add night shift wage.')
+      : updateMutation.isError
+        ? getApiErrorMessage(updateMutation.error, 'Failed to save changes.')
+        : deleteMutation.isError
+          ? getApiErrorMessage(deleteMutation.error, 'Failed to delete night shift wage.')
+          : undefined);
 
   return (
     <View style={styles.stack}>
       <View style={styles.card}>
         <View style={styles.sectionHeader}>
-          <MaterialIcons name="add-circle-outline" size={20} color={Colors.primary} />
-          <Text style={styles.sectionTitle}>Add Night Shift Wage</Text>
+          <MaterialIcons name={isEditing ? 'edit' : 'add-circle-outline'} size={20} color={Colors.primary} />
+          <Text style={styles.sectionTitle}>{isEditing ? 'Edit Night Shift Wage' : 'Add Night Shift Wage'}</Text>
         </View>
 
         <View style={styles.form}>
@@ -103,16 +198,39 @@ export function NightShiftWagesTab() {
             }
           />
           <DateTimeField label="Effective Date" mode="date" value={effectiveDate} onChange={setEffectiveDate} />
+          <MultiSelectField
+            label="Employees"
+            placeholder="All employees"
+            values={employeeUuids}
+            options={employeeOptions}
+            onChange={setEmployeeUuids}
+            icon={<MaterialIcons name="people" size={20} color={Colors.outline} />}
+          />
           {combinedError ? <Text style={styles.errorText}>{combinedError}</Text> : null}
-          <Button label="Add Night Shift Wage" onPress={handleAdd} loading={createMutation.isPending} />
+
+          {isEditing ? (
+            <View style={styles.editFooterRow}>
+              <Button
+                label="Delete"
+                variant="destructive"
+                onPress={() => deleteMutation.mutate()}
+                loading={deleteMutation.isPending}
+                style={styles.editFooterButton}
+              />
+              <Button label="Cancel" variant="secondary" onPress={resetForm} style={styles.editFooterButton} />
+              <Button label="Save" onPress={handleSubmit} loading={isSaving} style={styles.editFooterButton} />
+            </View>
+          ) : (
+            <Button label="Add Night Shift Wage" onPress={handleSubmit} loading={isSaving} />
+          )}
         </View>
       </View>
       <View style={styles.card}>
         <View style={styles.sectionHeader}>
           <MaterialIcons name="nightlight" size={20} color={Colors.primary} />
           <Text style={styles.sectionTitle}>Night Shift Wages</Text>
+          <InfoHint text="Hourly rate for shifts falling within a night window. Wages that haven't started yet can be edited or deleted — tap one to change it." />
         </View>
-        <Text style={styles.sectionHint}>Hourly rate for shifts falling within a night window.</Text>
 
         {isPending ? (
           <ActivityIndicator color={Colors.primary} style={styles.loading} />
@@ -122,15 +240,27 @@ export function NightShiftWagesTab() {
           <Text style={styles.emptyText}>No night shift wages configured yet.</Text>
         ) : (
           <View style={styles.list}>
-            {wages.map((wage) => (
-              <View key={wage.uuid} style={styles.listItem}>
-                <Text style={styles.listItemLabel}>
-                  {wage.start_time} – {wage.end_time}
-                </Text>
-                <Text style={styles.listItemValue}>{wage.hourly_rate}/hr</Text>
-                <Text style={styles.listItemMeta}>from {formatDateOnly(wage.effective_date)}</Text>
-              </View>
-            ))}
+            {wages.map((wage) => {
+              const editable = isUpcoming(wage);
+              return (
+                <Pressable
+                  key={wage.uuid}
+                  style={styles.listItem}
+                  onPress={editable ? () => startEdit(wage) : undefined}
+                  disabled={!editable}
+                >
+                  <Text style={styles.listItemLabel}>
+                    {wage.start_time} – {wage.end_time}
+                  </Text>
+                  <Text style={styles.listItemValue}>{wage.hourly_rate}/hr</Text>
+                  <Text style={styles.listItemMeta}>from {formatDateOnly(wage.effective_date)}</Text>
+                  <Text style={styles.listItemMeta}>{formatAppliesTo(wage.employees)}</Text>
+                  {editable ? (
+                    <MaterialIcons name="chevron-right" size={18} color={Colors.onSurfaceVariant} />
+                  ) : null}
+                </Pressable>
+              );
+            })}
           </View>
         )}
       </View>
@@ -158,11 +288,6 @@ const styles = StyleSheet.create({
   sectionTitle: {
     ...Typography.titleMd,
     color: Colors.onSurface,
-  },
-  sectionHint: {
-    ...Typography.labelSm,
-    color: Colors.onSurfaceVariant,
-    marginTop: -Spacing.unit * 2,
   },
   loading: {
     marginVertical: Spacing.unit * 2,
@@ -212,5 +337,12 @@ const styles = StyleSheet.create({
   errorText: {
     ...Typography.bodyMd,
     color: Colors.error,
+  },
+  editFooterRow: {
+    flexDirection: 'row',
+    gap: Spacing.unit * 3,
+  },
+  editFooterButton: {
+    flex: 1,
   },
 });

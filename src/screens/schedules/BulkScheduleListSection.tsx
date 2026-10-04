@@ -24,7 +24,7 @@ export function BulkScheduleListSection({ bulkSchedules, onSelect }: BulkSchedul
   if (bulkSchedules.length === 0) {
     return (
       <View style={styles.emptyCard}>
-        <Text style={styles.emptyText}>No bulk schedules yet.</Text>
+        <Text style={styles.emptyText}>No schedules yet.</Text>
       </View>
     );
   }

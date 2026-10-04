@@ -9,7 +9,7 @@ import { Spacing } from '../../theme/spacing';
 import { scheduleApi, type Schedule, type WorkWeek } from '../../lib/api/schedule';
 import { getApiErrorMessage } from '../../lib/api/base_api';
 import { formatWeekLabel, parseDateOnly, resolveBulkScheduleWeek } from './schedule-format';
-import { buildCellsFromSchedules } from './BulkScheduleScreen';
+import { buildEntriesFromSchedules } from './BulkScheduleScreen';
 import { BulkScheduleWeekGrid, type BulkEmployeeRow } from './BulkScheduleWeekGrid';
 
 // One row per employee that actually has a shift in this bulk schedule —
@@ -60,6 +60,14 @@ export function BulkScheduleViewScreen() {
   });
   const workWeeks: WorkWeek[] = workWeekData?.results ?? [];
 
+  // A separate, best-effort endpoint from the bulk schedule itself — fetched
+  // fresh whenever this week is opened, not embedded in `bulkSchedule`.
+  const { data: weeklyCostsData } = useQuery({
+    queryKey: ['bulk-schedule-weekly-costs', weekNumber],
+    queryFn: () => scheduleApi.getWeeklyCosts(weekNumber),
+    enabled: Number.isFinite(weekNumber),
+  });
+
   const resolvedWeek = bulkSchedule ? resolveBulkScheduleWeek(bulkSchedule, workWeeks) : undefined;
 
   const isLoading = isBulkSchedulePending || isWorkWeeksPending;
@@ -90,9 +98,10 @@ export function BulkScheduleViewScreen() {
           <BulkScheduleWeekGrid
             employees={employeesFromSchedules(bulkSchedule.schedules)}
             week={resolvedWeek}
-            cells={buildCellsFromSchedules(bulkSchedule.schedules, parseDateOnly(resolvedWeek.start_date))}
-            onCellChange={() => {}}
+            entries={buildEntriesFromSchedules(bulkSchedule.schedules, parseDateOnly(resolvedWeek.start_date))}
+            onEntriesChange={() => { }}
             readOnly
+            dailyCosts={weeklyCostsData?.days ?? []}
           />
         ) : null}
       </ScrollView>

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -16,22 +16,25 @@ import {
   type BulkScheduleItem,
   type CreateBulkSchedulePayload,
   type Schedule,
+  type DailyCost,
+  type ShiftPlanPayload,
   type WorkWeek,
 } from '../../lib/api/schedule';
 import { getApiErrorMessage } from '../../lib/api/base_api';
 import { formatWeekLabel, parseDateOnly, resolveBulkScheduleWeek } from './schedule-format';
 import {
   BulkScheduleWeekGrid,
-  bulkCellKey,
-  type BulkCellKey,
-  type BulkCellValue,
+  groupEntriesByTime,
+  toDateOnlyString,
   type BulkEmployeeRow,
+  type BulkShiftEntry,
 } from './BulkScheduleWeekGrid';
 
 interface WeekEntry {
   week: WorkWeek;
-  cells: Record<BulkCellKey, BulkCellValue | undefined>;
+  entries: BulkShiftEntry[];
   saveStatus: 'unsaved' | 'draft' | 'published';
+  dailyCosts: DailyCost[];
 }
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -97,92 +100,131 @@ function addableWorkWeeks(workWeeks: WorkWeek[], usedWeeks: WorkWeek[]): WorkWee
   return workWeeks.slice(Math.max(...usedIndices) + 1);
 }
 
-// Converts an existing bulk schedule's flat Schedule[] back into the cell
-// map the grid edits. Employees no longer active won't have a row to show
-// this in, so a shift for a deactivated employee is silently dropped on
-// next save — same "auto-populate active employees only" boundary already
-// accepted for create, not a new gap introduced by editing. Exported for
-// reuse by BulkScheduleViewScreen's own (read-only) cell population.
-export function buildCellsFromSchedules(
-  schedules: Schedule[],
-  weekStart: Date,
-): Record<BulkCellKey, BulkCellValue | undefined> {
-  const cells: Record<BulkCellKey, BulkCellValue | undefined> = {};
+// Converts an existing bulk schedule's flat Schedule[] back into the entry
+// list the grid edits. Employees no longer active won't appear in the
+// employee picker, but their existing entries still render (looked up by
+// uuid, falling back to "Unknown employee" if not found) — the shift is only
+// silently dropped from the payload on next save (see buildBulkScheduleItems),
+// same "auto-populate active employees only" boundary already accepted for
+// create, not a new gap introduced by editing. Exported for reuse by
+// BulkScheduleViewScreen's own (read-only) entry population.
+export function buildEntriesFromSchedules(schedules: Schedule[], weekStart: Date): BulkShiftEntry[] {
+  if (!schedules || schedules.length === 0) return [];
+  const entries: BulkShiftEntry[] = [];
   for (const schedule of schedules) {
     const dayIndex = Math.round((startOfDay(new Date(schedule.start_time)).getTime() - weekStart.getTime()) / MS_PER_DAY);
     if (dayIndex < 0 || dayIndex > 6) continue;
-    cells[bulkCellKey(schedule.employee.uuid, dayIndex)] = {
+    entries.push({
+      id: schedule.uuid,
+      employeeUuid: schedule.employee.uuid,
+      dayIndex,
       start: formatTimeHHMM(new Date(schedule.start_time)),
       end: formatTimeHHMM(new Date(schedule.end_time)),
       breakMinutes: breakTimeStringToMinutes(schedule.break_time),
       isScannable: schedule.start_method === 'qr',
       ...(schedule.work_location ? { workLocationUuid: schedule.work_location.uuid } : {}),
-    };
+    });
   }
-  return cells;
+  return entries;
+}
+
+// The rejected API body is the raw response data, so collect every string in
+// it (including arrays of strings, e.g. per-field validation messages) rather
+// than assuming one field name for the error text.
+function errorLines(error: unknown, fallback: string): string[] {
+  const lines = new Set<string>();
+  const collect = (value: unknown) => {
+    if (typeof value === 'string') lines.add(value);
+    else if (Array.isArray(value)) value.forEach(collect);
+    else if (value && typeof value === 'object') Object.values(value).forEach(collect);
+  };
+  collect(error);
+  return lines.size > 0 ? [...lines] : [fallback];
+}
+
+function changedDayIndexes(before: BulkShiftEntry[], after: BulkShiftEntry[]): number[] {
+  return [0, 1, 2, 3, 4, 5, 6].filter(
+    (dayIndex) =>
+      JSON.stringify(before.filter((entry) => entry.dayIndex === dayIndex)) !==
+      JSON.stringify(after.filter((entry) => entry.dayIndex === dayIndex)),
+  );
+}
+
+function shiftPlanForGroup(group: { start: string; end: string; entries: BulkShiftEntry[] }): ShiftPlanPayload {
+  return {
+    start_time: group.start,
+    end_time: group.end,
+    employees: group.entries.map((entry) => entry.employeeUuid),
+  };
+}
+
+async function fetchWeeklyCosts(weekNumber: number): Promise<DailyCost[]> {
+  try {
+    return (await scheduleApi.getWeeklyCosts(weekNumber)).days;
+  } catch {
+    return [];
+  }
 }
 
 // Picking a week — either the active card's own change-week dropdown, or
-// the "Add Next Week" flow — now checks the backend for an already-existing
+// the "Add Next Week" flow — checks the backend for an already-existing
 // bulk schedule on that week and loads it if found, rather than always
 // starting blank. This keeps picking an already-scheduled week from
 // silently building a second, conflicting roster under the same week
-// number: it becomes an edit of the existing one instead.
+// number: it becomes an edit of the existing one instead. Saved weeks also
+// load their per-day costs; a blank week has none to show yet.
 async function fetchWeekEntry(week: WorkWeek): Promise<WeekEntry> {
   try {
     const existing = await scheduleApi.getBulkSchedule(week.week_number);
     return {
       week,
-      cells: buildCellsFromSchedules(existing.schedules, parseDateOnly(week.start_date)),
+      entries: buildEntriesFromSchedules(existing.schedules, parseDateOnly(week.start_date)),
       saveStatus: existing.status === BulkScheduleStatus.PUBLISHED ? 'published' : 'draft',
+      dailyCosts: await fetchWeeklyCosts(week.week_number),
     };
   } catch {
     // No bulk schedule exists yet for this week (404), or a transient fetch
     // error — either way, start this week blank rather than blocking the
     // flow. Re-picking the same week retries the lookup.
-    return { week, cells: {}, saveStatus: 'unsaved' };
+    return { week, entries: [], saveStatus: 'unsaved', dailyCosts: [] };
   }
 }
 
-// Every filled cell in `week` becomes one bulk-schedule item. Overnight
-// shifts (end time-of-day <= start time-of-day) roll the end onto the next
-// calendar day — same convention used for display elsewhere in this app,
-// applied here to the actual payload dates. Dates come from the week's own
-// authoritative `start_date` (parsed as local midnight, not handed straight
-// to `new Date()` — a bare date-only string parses as UTC otherwise).
+// Every entry in `week` becomes one bulk-schedule item — entries for an
+// employee no longer active are silently dropped (same "auto-populate active
+// employees only" boundary this screen has always had). Overnight shifts
+// (end time-of-day <= start time-of-day) roll the end onto the next calendar
+// day — same convention used for display elsewhere in this app, applied here
+// to the actual payload dates. Dates come from the week's own authoritative
+// `start_date` (parsed as local midnight, not handed straight to `new
+// Date()` — a bare date-only string parses as UTC otherwise).
 function buildBulkScheduleItems(week: WeekEntry, employees: BulkEmployeeRow[]): BulkScheduleItem[] {
   const weekStart = parseDateOnly(week.week.start_date);
+  const activeEmployeeUuids = new Set(employees.map((employee) => employee.uuid));
   const items: BulkScheduleItem[] = [];
-  employees.forEach((employee) => {
-    for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
-      const cell = week.cells[bulkCellKey(employee.uuid, dayIndex)];
-      if (!cell) continue;
-      const startDate = addDaysToDate(weekStart, dayIndex);
-      const endDate = timeToMinutes(cell.end) <= timeToMinutes(cell.start) ? addDaysToDate(startDate, 1) : startDate;
-      items.push({
-        employee_uuid: employee.uuid,
-        start_time: combineDateAndTime(startDate, cell.start),
-        end_time: combineDateAndTime(endDate, cell.end),
-        break_time: cell.breakMinutes ? toBreakTimeString(cell.breakMinutes) : '',
-        is_scannable: cell.isScannable,
-        ...(cell.workLocationUuid ? { work_location_uuid: cell.workLocationUuid } : {}),
-      });
-    }
-  });
+  for (const entry of week.entries) {
+    if (!activeEmployeeUuids.has(entry.employeeUuid)) continue;
+    const startDate = addDaysToDate(weekStart, entry.dayIndex);
+    const endDate =
+      timeToMinutes(entry.end) <= timeToMinutes(entry.start) ? addDaysToDate(startDate, 1) : startDate;
+    items.push({
+      employee_uuid: entry.employeeUuid,
+      start_time: combineDateAndTime(startDate, entry.start),
+      end_time: combineDateAndTime(endDate, entry.end),
+      break_time: entry.breakMinutes ? toBreakTimeString(entry.breakMinutes) : '',
+      is_scannable: entry.isScannable,
+      ...(entry.workLocationUuid ? { work_location_uuid: entry.workLocationUuid } : {}),
+    });
+  }
   return items;
 }
 
 function countScheduledEmployees(week: WeekEntry, employees: BulkEmployeeRow[]): number {
-  let count = 0;
-  for (const employee of employees) {
-    for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
-      if (week.cells[bulkCellKey(employee.uuid, dayIndex)]) {
-        count += 1;
-        break;
-      }
-    }
-  }
-  return count;
+  const activeEmployeeUuids = new Set(employees.map((employee) => employee.uuid));
+  const scheduled = new Set(
+    week.entries.filter((entry) => activeEmployeeUuids.has(entry.employeeUuid)).map((entry) => entry.employeeUuid),
+  );
+  return scheduled.size;
 }
 
 function saveStatusLabel(status: WeekEntry['saveStatus']): string {
@@ -250,14 +292,19 @@ export function BulkScheduleScreen() {
       if (!existingBulkSchedule) return;
       const resolvedWeek = resolveBulkScheduleWeek(existingBulkSchedule, workWeeks);
       if (!resolvedWeek) return;
-      const cells = buildCellsFromSchedules(existingBulkSchedule.schedules, parseDateOnly(resolvedWeek.start_date));
-      setWeeks([
-        {
-          week: resolvedWeek,
-          cells,
-          saveStatus: existingBulkSchedule.status === BulkScheduleStatus.PUBLISHED ? 'published' : 'draft',
-        },
-      ]);
+      const entries = buildEntriesFromSchedules(existingBulkSchedule.schedules, parseDateOnly(resolvedWeek.start_date));
+      isSeedingRef.current = true;
+      fetchWeeklyCosts(existingBulkSchedule.week_number).then((dailyCosts) => {
+        setWeeks([
+          {
+            week: resolvedWeek,
+            entries,
+            saveStatus: existingBulkSchedule.status === BulkScheduleStatus.PUBLISHED ? 'published' : 'draft',
+            dailyCosts,
+          },
+        ]);
+        isSeedingRef.current = false;
+      });
     } else if (workWeeks.length > 0) {
       // The auto-selected first week is still a "week being used to create
       // a bulk schedule" — check the backend the same way an explicit
@@ -273,6 +320,7 @@ export function BulkScheduleScreen() {
   }, [isEditing, existingBulkSchedule, workWeeks, weeks.length]);
 
   const [activeWeekIndex, setActiveWeekIndex] = useState(0);
+  const [errorModal, setErrorModal] = useState<{ title: string; lines: string[] } | undefined>();
   const [addWeekDraft, setAddWeekDraft] = useState<WorkWeek | null>(null);
 
   const isLoading =
@@ -285,9 +333,9 @@ export function BulkScheduleScreen() {
     : isWorkWeeksError
       ? getApiErrorMessage(workWeeksError, 'Failed to load selectable weeks.')
       : isEditing && isBulkListError
-        ? getApiErrorMessage(bulkListError, 'Failed to load this bulk schedule.')
+        ? getApiErrorMessage(bulkListError, 'Failed to load this schedule.')
         : isEditing && !isBulkListPending && !existingBulkSchedule
-          ? 'This bulk schedule could not be found.'
+          ? 'This schedule could not be found.'
           : undefined;
 
   const activeWeek = weeks[activeWeekIndex];
@@ -296,10 +344,43 @@ export function BulkScheduleScreen() {
     weeks.map((week) => week.week),
   );
 
-  const updateCell = (weekIndex: number, key: BulkCellKey, value: BulkCellValue | undefined) => {
+  const setDayCost = (weekIndex: number, date: string, total: number | undefined) => {
     setWeeks((prev) =>
-      prev.map((week, index) => (index === weekIndex ? { ...week, cells: { ...week.cells, [key]: value } } : week)),
+      prev.map((week, index) => {
+        if (index !== weekIndex) return week;
+        const others = week.dailyCosts.filter((cost) => cost.date !== date);
+        return { ...week, dailyCosts: total === undefined ? others : [...others, { date, estimated_pay: total }] };
+      }),
     );
+  };
+
+  // Every create/update prices each changed day from its own shifts via the
+  // estimate endpoint — saved costs are only read back when a saved week is
+  // opened.
+  const updateEntries = (weekIndex: number, nextEntries: BulkShiftEntry[]) => {
+    const { week, entries: previousEntries } = weeks[weekIndex];
+    setWeeks((prev) => prev.map((card, index) => (index === weekIndex ? { ...card, entries: nextEntries } : card)));
+    const weekStart = parseDateOnly(week.start_date);
+    for (const dayIndex of changedDayIndexes(previousEntries, nextEntries)) {
+      const day = addDaysToDate(weekStart, dayIndex);
+      const date = toDateOnlyString(day);
+      const dayEntries = nextEntries.filter((entry) => entry.dayIndex === dayIndex);
+      if (dayEntries.length === 0) {
+        setDayCost(weekIndex, date, undefined);
+        continue;
+      }
+      const shift = groupEntriesByTime(dayEntries).map(shiftPlanForGroup);
+      scheduleApi
+        .estimateDailyCosts({ date, shift })
+        .then((estimate) => setDayCost(weekIndex, date, estimate.total_estimated_pay))
+        .catch((error) => {
+          setErrorModal({
+            title: 'Cost estimate failed',
+            lines: errorLines(error, 'Could not estimate the cost for this day.'),
+          });
+          setDayCost(weekIndex, date, undefined);
+        });
+    }
   };
 
   const [isResolvingWeek, setIsResolvingWeek] = useState(false);
@@ -347,18 +428,32 @@ export function BulkScheduleScreen() {
       {
         onSuccess: () => {
           setWeeks((prev) =>
-            prev.map((week, index) => (index === activeWeekIndex ? { ...week, saveStatus: status } : week)),
+            prev.map((week, index) =>
+              index === activeWeekIndex
+                ? { ...week, saveStatus: status }
+                : week,
+            ),
           );
           // Bulk Schedules list reads from this same key — refetch it so an
           // edit (or a brand new roster) shows up there without a manual pull.
           queryClient.invalidateQueries({ queryKey: ['bulk-schedules'] });
+          // A bulk create/update also creates/updates individual Schedule
+          // records under the hood — invalidating just `['bulk-schedules']`
+          // left every individual-schedule list (Home's "My Schedule" tab,
+          // "All Schedules", Manage Schedules' Individual tab — each keyed
+          // `['schedules', ...different params]`) showing stale data until
+          // its own staleTime happened to expire. `queryClient.invalidateQueries`
+          // matches by key PREFIX, not exact equality, so `['schedules']`
+          // alone invalidates every one of those variants in one call — same
+          // convention CreateShiftScreen's own create/update already uses.
+          queryClient.invalidateQueries({ queryKey: ['schedules'] });
           Alert.alert(
             status === BulkScheduleStatus.DRAFT ? 'Draft saved' : 'Schedule published',
             status === BulkScheduleStatus.DRAFT ? "This week's roster has been saved as a draft." : 'This week has been published.',
           );
         },
         onError: (error) => {
-          Alert.alert('Failed to save', getApiErrorMessage(error, 'Something went wrong. Please try again.'));
+          setErrorModal({ title: 'Failed to save', lines: errorLines(error, 'Something went wrong. Please try again.') });
         },
       },
     );
@@ -371,7 +466,7 @@ export function BulkScheduleScreen() {
           <MaterialIcons name="arrow-back" size={24} color={Colors.onSurface} />
         </Pressable>
         <View style={styles.headerText}>
-          <Text style={styles.headerTitle}>{isEditing ? 'Edit Bulk Schedule' : 'Bulk Schedule'}</Text>
+          <Text style={styles.headerTitle}>{isEditing ? 'Edit Schedule' : 'Schedule'}</Text>
           <Text style={styles.headerSubtitle}>
             {isEditing ? "Update this week's roster" : 'Add weekly rosters'}
           </Text>
@@ -391,8 +486,8 @@ export function BulkScheduleScreen() {
                   <BulkScheduleWeekGrid
                     employees={employees}
                     week={week.week}
-                    cells={week.cells}
-                    onCellChange={(key, value) => updateCell(index, key, value)}
+                    entries={week.entries}
+                    onEntriesChange={(nextEntries) => updateEntries(index, nextEntries)}
                     weekOptions={
                       isEditing
                         ? undefined
@@ -402,6 +497,7 @@ export function BulkScheduleScreen() {
                         )
                     }
                     onSelectWeek={isEditing ? undefined : (newWeek) => changeCardWeek(index, newWeek)}
+                    dailyCosts={week.dailyCosts}
                   />
                   {isResolvingWeek ? (
                     <View style={styles.weekLoadingOverlay}>
@@ -470,6 +566,22 @@ export function BulkScheduleScreen() {
           </>
         )}
       </ScrollView>
+
+      <Modal visible={!!errorModal} transparent animationType="fade" onRequestClose={() => setErrorModal(undefined)}>
+        <View style={styles.overlay}>
+          <View style={styles.sheet}>
+            <Text style={styles.sheetTitle}>{errorModal?.title}</Text>
+            <ScrollView style={styles.errorList}>
+              {errorModal?.lines.map((line, index) => (
+                <Text key={index} style={styles.errorListItem}>
+                  • {line}
+                </Text>
+              ))}
+            </ScrollView>
+            <Button label="OK" onPress={() => setErrorModal(undefined)} />
+          </View>
+        </View>
+      </Modal>
 
       {!isLoading && !loadError ? (
         <View style={styles.bottomBar}>
@@ -560,6 +672,32 @@ const styles = StyleSheet.create({
   errorText: {
     ...Typography.bodyMd,
     color: Colors.error,
+  },
+  overlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(11,28,48,0.4)',
+  },
+  sheet: {
+    width: '85%',
+    maxWidth: 360,
+    backgroundColor: Colors.surfaceContainerLowest,
+    borderRadius: Radius.lg,
+    padding: Spacing.cardPadding,
+    gap: Spacing.gutter,
+  },
+  sheetTitle: {
+    ...Typography.titleMd,
+    color: Colors.onSurface,
+  },
+  errorList: {
+    maxHeight: 320,
+  },
+  errorListItem: {
+    ...Typography.bodyMd,
+    color: Colors.error,
+    paddingVertical: Spacing.unit,
   },
   collapsedRow: {
     flexDirection: 'row',

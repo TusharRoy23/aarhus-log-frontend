@@ -29,8 +29,8 @@ export function BulkSchedulesTab() {
   return (
     <>
       <Button
-        label="New Bulk Schedule"
-        icon={<MaterialIcons name="add" size={20} color={Colors.onPrimary} />}
+        label="New Schedule"
+        icon={<MaterialIcons name="calendar-month" size={20} color={Colors.onPrimary} />}
         onPress={() => router.push('/bulk-schedule')}
         permission={{ resource: Resources.SCHEDULE, action: 'add' }}
       />

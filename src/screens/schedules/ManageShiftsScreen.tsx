@@ -25,16 +25,16 @@ export function ManageShiftsScreen() {
           <Text style={styles.subtitle}>Review and modify employee schedules.</Text>
         </View>
 
-        <SegmentedControl
+        {/* <SegmentedControl
           value={view}
           onChange={setView}
           options={[
             { value: 'individual', label: 'Schedules' },
             { value: 'bulk', label: 'Bulk Schedules' },
           ]}
-        />
-
-        {view === 'individual' ? <IndividualSchedulesTab /> : <BulkSchedulesTab />}
+        /> */}
+        <BulkSchedulesTab />
+        {/* {view === 'individual' ? <IndividualSchedulesTab /> : <BulkSchedulesTab />} */}
       </ScrollView>
     </AppShell>
   );

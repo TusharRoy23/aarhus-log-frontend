@@ -178,15 +178,15 @@ export function DateTimeField({ label, mode, value, onChange }: DateTimeFieldPro
 
       {/* Android: single-step date or time */}
       {showPicker && Platform.OS === 'android' && mode !== 'datetime' ? (
-        <DateTimePicker value={parseValue(mode, value)} mode={mode} onChange={handleValueChange} />
+        <DateTimePicker value={parseValue(mode, value)} mode={mode} is24Hour onChange={handleValueChange} />
       ) : null}
 
       {/* Android: two-step datetime (date dialog, then time dialog) */}
       {androidStep === 'date' && androidPendingDate ? (
-        <DateTimePicker value={androidPendingDate} mode="date" onChange={handleAndroidDateStepChange} />
+        <DateTimePicker value={androidPendingDate} mode="date" is24Hour onChange={handleAndroidDateStepChange} />
       ) : null}
       {androidStep === 'time' && androidPendingDate ? (
-        <DateTimePicker value={androidPendingDate} mode="time" onChange={handleAndroidTimeStepChange} />
+        <DateTimePicker value={androidPendingDate} mode="time" is24Hour onChange={handleAndroidTimeStepChange} />
       ) : null}
 
       {/* iOS: inline spinner in a bottom sheet, all modes supported directly — the
@@ -203,6 +203,7 @@ export function DateTimeField({ label, mode, value, onChange }: DateTimeFieldPro
                 value={parseValue(mode, iosDraftValue)}
                 mode={mode}
                 display="spinner"
+                is24Hour
                 onChange={handleValueChange}
               />
             </View>
