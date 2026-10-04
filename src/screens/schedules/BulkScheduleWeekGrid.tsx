@@ -8,7 +8,7 @@ import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
 import { workLocationApi } from '../../lib/api/work-location';
-import type { ScheduleDailyCost, WorkWeek } from '../../lib/api/schedule';
+import type { DailyCost, WorkWeek } from '../../lib/api/schedule';
 import { formatWeekLabel, parseDateOnly } from './schedule-format';
 
 const DAY_LABELS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -126,7 +126,7 @@ export interface BulkScheduleWeekGridProps {
    * none, since the client can't compute this itself: it depends on each
    * employee's base rate plus the wage-config rules, neither of which the
    * client has). Omit/empty just means no cost row shows for that day. */
-  dailyCosts?: ScheduleDailyCost[];
+  dailyCosts?: DailyCost[];
   /** Omit both to lock the week (editing an existing bulk schedule) — the
    * header then shows the week as static text instead of a change-week
    * dropdown, since editing is scoped to exactly this one week. */
@@ -162,7 +162,7 @@ export function BulkScheduleWeekGrid({
   const employeeByUuid = useMemo(() => new Map(employees.map((employee) => [employee.uuid, employee])), [employees]);
   const costByDate = useMemo(() => {
     const map = new Map<string, number>();
-    for (const cost of dailyCosts ?? []) map.set(cost.date, cost.total_estimated_pay);
+    for (const cost of dailyCosts ?? []) map.set(cost.date, cost.estimated_pay);
     return map;
   }, [dailyCosts]);
 
@@ -463,7 +463,7 @@ export function BulkScheduleWeekGrid({
 
                 <View style={styles.sheetFooter}>
                   {editorTarget.mode === 'edit' ? (
-                    <Button label="Remove" variant="destructive" onPress={handleRemoveEntry} style={styles.sheetButton} />
+                    <Button label="Del" variant="destructive" onPress={handleRemoveEntry} style={styles.sheetButton} />
                   ) : null}
                   <Button label="Close" variant="secondary" onPress={closeEditor} style={styles.sheetButton} />
                   <Button label="Save" onPress={handleSaveEntry} style={styles.sheetButton} />

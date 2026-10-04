@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -16,7 +16,7 @@ import {
   type BulkScheduleItem,
   type CreateBulkSchedulePayload,
   type Schedule,
-  type ScheduleDailyCost,
+  type DailyCost,
   type ShiftPlanPayload,
   type WorkWeek,
 } from '../../lib/api/schedule';
@@ -34,7 +34,7 @@ interface WeekEntry {
   week: WorkWeek;
   entries: BulkShiftEntry[];
   saveStatus: 'unsaved' | 'draft' | 'published';
-  dailyCosts: ScheduleDailyCost[];
+  dailyCosts: DailyCost[];
 }
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -128,6 +128,20 @@ export function buildEntriesFromSchedules(schedules: Schedule[], weekStart: Date
   return entries;
 }
 
+// The rejected API body is the raw response data, so collect every string in
+// it (including arrays of strings, e.g. per-field validation messages) rather
+// than assuming one field name for the error text.
+function errorLines(error: unknown, fallback: string): string[] {
+  const lines = new Set<string>();
+  const collect = (value: unknown) => {
+    if (typeof value === 'string') lines.add(value);
+    else if (Array.isArray(value)) value.forEach(collect);
+    else if (value && typeof value === 'object') Object.values(value).forEach(collect);
+  };
+  collect(error);
+  return lines.size > 0 ? [...lines] : [fallback];
+}
+
 function changedDayIndexes(before: BulkShiftEntry[], after: BulkShiftEntry[]): number[] {
   return [0, 1, 2, 3, 4, 5, 6].filter(
     (dayIndex) =>
@@ -144,38 +158,36 @@ function shiftPlanForGroup(group: { start: string; end: string; entries: BulkShi
   };
 }
 
-async function fetchDailyCosts(weekNumber: number): Promise<ScheduleDailyCost[]> {
+async function fetchWeeklyCosts(weekNumber: number): Promise<DailyCost[]> {
   try {
-    return (await scheduleApi.getDailyCosts(weekNumber)).results;
+    return (await scheduleApi.getWeeklyCosts(weekNumber)).days;
   } catch {
     return [];
   }
 }
 
 // Picking a week — either the active card's own change-week dropdown, or
-// the "Add Next Week" flow — now checks the backend for an already-existing
+// the "Add Next Week" flow — checks the backend for an already-existing
 // bulk schedule on that week and loads it if found, rather than always
 // starting blank. This keeps picking an already-scheduled week from
 // silently building a second, conflicting roster under the same week
-// number: it becomes an edit of the existing one instead. Daily costs are
-// fetched every time a week is opened/selected this way (not cached off the
-// bulk schedule response), since the org may later make showing them
-// optional/configurable independent of the schedule data itself.
+// number: it becomes an edit of the existing one instead. Saved weeks also
+// load their per-day costs; a blank week has none to show yet.
 async function fetchWeekEntry(week: WorkWeek): Promise<WeekEntry> {
-  const [dailyCosts, scheduleResult] = await Promise.all([
-    fetchDailyCosts(week.week_number),
-    scheduleApi.getBulkSchedule(week.week_number).then(
-      (existing) => ({
-        entries: buildEntriesFromSchedules(existing.schedules, parseDateOnly(week.start_date)),
-        saveStatus: (existing.status === BulkScheduleStatus.PUBLISHED ? 'published' : 'draft') as WeekEntry['saveStatus'],
-      }),
-      // No bulk schedule exists yet for this week (404), or a transient
-      // fetch error — either way, start this week blank rather than
-      // blocking the flow. Re-picking the same week retries the lookup.
-      () => ({ entries: [] as BulkShiftEntry[], saveStatus: 'unsaved' as WeekEntry['saveStatus'] }),
-    ),
-  ]);
-  return { week, dailyCosts, ...scheduleResult };
+  try {
+    const existing = await scheduleApi.getBulkSchedule(week.week_number);
+    return {
+      week,
+      entries: buildEntriesFromSchedules(existing.schedules, parseDateOnly(week.start_date)),
+      saveStatus: existing.status === BulkScheduleStatus.PUBLISHED ? 'published' : 'draft',
+      dailyCosts: await fetchWeeklyCosts(week.week_number),
+    };
+  } catch {
+    // No bulk schedule exists yet for this week (404), or a transient fetch
+    // error — either way, start this week blank rather than blocking the
+    // flow. Re-picking the same week retries the lookup.
+    return { week, entries: [], saveStatus: 'unsaved', dailyCosts: [] };
+  }
 }
 
 // Every entry in `week` becomes one bulk-schedule item — entries for an
@@ -282,7 +294,7 @@ export function BulkScheduleScreen() {
       if (!resolvedWeek) return;
       const entries = buildEntriesFromSchedules(existingBulkSchedule.schedules, parseDateOnly(resolvedWeek.start_date));
       isSeedingRef.current = true;
-      fetchDailyCosts(existingBulkSchedule.week_number).then((dailyCosts) => {
+      fetchWeeklyCosts(existingBulkSchedule.week_number).then((dailyCosts) => {
         setWeeks([
           {
             week: resolvedWeek,
@@ -308,6 +320,7 @@ export function BulkScheduleScreen() {
   }, [isEditing, existingBulkSchedule, workWeeks, weeks.length]);
 
   const [activeWeekIndex, setActiveWeekIndex] = useState(0);
+  const [errorModal, setErrorModal] = useState<{ title: string; lines: string[] } | undefined>();
   const [addWeekDraft, setAddWeekDraft] = useState<WorkWeek | null>(null);
 
   const isLoading =
@@ -320,9 +333,9 @@ export function BulkScheduleScreen() {
     : isWorkWeeksError
       ? getApiErrorMessage(workWeeksError, 'Failed to load selectable weeks.')
       : isEditing && isBulkListError
-        ? getApiErrorMessage(bulkListError, 'Failed to load this bulk schedule.')
+        ? getApiErrorMessage(bulkListError, 'Failed to load this schedule.')
         : isEditing && !isBulkListPending && !existingBulkSchedule
-          ? 'This bulk schedule could not be found.'
+          ? 'This schedule could not be found.'
           : undefined;
 
   const activeWeek = weeks[activeWeekIndex];
@@ -336,22 +349,17 @@ export function BulkScheduleScreen() {
       prev.map((week, index) => {
         if (index !== weekIndex) return week;
         const others = week.dailyCosts.filter((cost) => cost.date !== date);
-        return { ...week, dailyCosts: total === undefined ? others : [...others, { date, total_estimated_pay: total }] };
+        return { ...week, dailyCosts: total === undefined ? others : [...others, { date, estimated_pay: total }] };
       }),
     );
   };
 
+  // Every create/update prices each changed day from its own shifts via the
+  // estimate endpoint — saved costs are only read back when a saved week is
+  // opened.
   const updateEntries = (weekIndex: number, nextEntries: BulkShiftEntry[]) => {
     const { week, entries: previousEntries } = weeks[weekIndex];
     setWeeks((prev) => prev.map((card, index) => (index === weekIndex ? { ...card, entries: nextEntries } : card)));
-    if (isEditing) {
-      fetchDailyCosts(week.week_number).then((dailyCosts) => {
-        setWeeks((prev) => prev.map((card, index) => (index === weekIndex ? { ...card, dailyCosts } : card)));
-      });
-      return;
-    }
-    // Nothing is saved for an unsaved week, so the server has no costs to
-    // read — each changed day is priced from its own shifts instead.
     const weekStart = parseDateOnly(week.start_date);
     for (const dayIndex of changedDayIndexes(previousEntries, nextEntries)) {
       const day = addDaysToDate(weekStart, dayIndex);
@@ -365,7 +373,13 @@ export function BulkScheduleScreen() {
       scheduleApi
         .estimateDailyCosts({ date, shift })
         .then((estimate) => setDayCost(weekIndex, date, estimate.total_estimated_pay))
-        .catch(() => setDayCost(weekIndex, date, undefined));
+        .catch((error) => {
+          setErrorModal({
+            title: 'Cost estimate failed',
+            lines: errorLines(error, 'Could not estimate the cost for this day.'),
+          });
+          setDayCost(weekIndex, date, undefined);
+        });
     }
   };
 
@@ -412,7 +426,7 @@ export function BulkScheduleScreen() {
     bulkSaveMutation.mutate(
       { week: activeWeek.week.week_number, schedules: items, status },
       {
-        onSuccess: (savedBulkSchedule) => {
+        onSuccess: () => {
           setWeeks((prev) =>
             prev.map((week, index) =>
               index === activeWeekIndex
@@ -420,14 +434,6 @@ export function BulkScheduleScreen() {
                 : week,
             ),
           );
-          // Costs are recalculated server-side on save — refresh this
-          // week's daily-costs lookup separately so the grid picks up the
-          // latest numbers without blocking the rest of this callback.
-          fetchDailyCosts(savedBulkSchedule.week_number).then((dailyCosts) => {
-            setWeeks((prev) =>
-              prev.map((week, index) => (index === activeWeekIndex ? { ...week, dailyCosts } : week)),
-            );
-          });
           // Bulk Schedules list reads from this same key — refetch it so an
           // edit (or a brand new roster) shows up there without a manual pull.
           queryClient.invalidateQueries({ queryKey: ['bulk-schedules'] });
@@ -447,7 +453,7 @@ export function BulkScheduleScreen() {
           );
         },
         onError: (error) => {
-          Alert.alert('Failed to save', getApiErrorMessage(error, 'Something went wrong. Please try again.'));
+          setErrorModal({ title: 'Failed to save', lines: errorLines(error, 'Something went wrong. Please try again.') });
         },
       },
     );
@@ -460,7 +466,7 @@ export function BulkScheduleScreen() {
           <MaterialIcons name="arrow-back" size={24} color={Colors.onSurface} />
         </Pressable>
         <View style={styles.headerText}>
-          <Text style={styles.headerTitle}>{isEditing ? 'Edit Bulk Schedule' : 'Bulk Schedule'}</Text>
+          <Text style={styles.headerTitle}>{isEditing ? 'Edit Schedule' : 'Schedule'}</Text>
           <Text style={styles.headerSubtitle}>
             {isEditing ? "Update this week's roster" : 'Add weekly rosters'}
           </Text>
@@ -561,6 +567,22 @@ export function BulkScheduleScreen() {
         )}
       </ScrollView>
 
+      <Modal visible={!!errorModal} transparent animationType="fade" onRequestClose={() => setErrorModal(undefined)}>
+        <View style={styles.overlay}>
+          <View style={styles.sheet}>
+            <Text style={styles.sheetTitle}>{errorModal?.title}</Text>
+            <ScrollView style={styles.errorList}>
+              {errorModal?.lines.map((line, index) => (
+                <Text key={index} style={styles.errorListItem}>
+                  • {line}
+                </Text>
+              ))}
+            </ScrollView>
+            <Button label="OK" onPress={() => setErrorModal(undefined)} />
+          </View>
+        </View>
+      </Modal>
+
       {!isLoading && !loadError ? (
         <View style={styles.bottomBar}>
           <View style={styles.bottomBarStatusRow}>
@@ -650,6 +672,32 @@ const styles = StyleSheet.create({
   errorText: {
     ...Typography.bodyMd,
     color: Colors.error,
+  },
+  overlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(11,28,48,0.4)',
+  },
+  sheet: {
+    width: '85%',
+    maxWidth: 360,
+    backgroundColor: Colors.surfaceContainerLowest,
+    borderRadius: Radius.lg,
+    padding: Spacing.cardPadding,
+    gap: Spacing.gutter,
+  },
+  sheetTitle: {
+    ...Typography.titleMd,
+    color: Colors.onSurface,
+  },
+  errorList: {
+    maxHeight: 320,
+  },
+  errorListItem: {
+    ...Typography.bodyMd,
+    color: Colors.error,
+    paddingVertical: Spacing.unit,
   },
   collapsedRow: {
     flexDirection: 'row',

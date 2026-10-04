@@ -179,6 +179,17 @@ export type DayCostEstimatePayload = {
     shift: ShiftPlanPayload[];
 }
 
+export type DailyCost = {
+    date: string;
+    estimated_pay: number;
+}
+
+export type WeeklyCost = {
+    week_number: number;
+    total_estimated_pay: number;
+    days: DailyCost[];
+}
+
 export const ScheduleTypes = {
     INDIVIDUAL: 'individual',
     GROUP: 'group',
@@ -261,8 +272,11 @@ export const scheduleApi = {
         return response.data;
     },
     estimateDailyCosts: async (dayCostEstimatePayload: DayCostEstimatePayload): Promise<ScheduleDailyCost> => {
-        console.log('dayCostEstimatePayload: ', dayCostEstimatePayload);
         const response = await baseApi.post<ScheduleDailyCost>(apiPath(`/employee/day-cost-estimate/`), dayCostEstimatePayload);
+        return response.data;
+    },
+    getWeeklyCosts: async (week_number: number): Promise<WeeklyCost> => {
+        const response = await baseApi.get<WeeklyCost>(apiPath(`/employee/weekly-costs/${week_number}/`));
         return response.data;
     }
 };
