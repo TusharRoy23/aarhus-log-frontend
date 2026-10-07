@@ -4,20 +4,17 @@ import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
 
-export type OrganizationSettingsTabKey = 'general' | 'festival-wages' | 'night-shift-wages' | 'weekend-wages';
+export type OrganizationSettingsTabKey = 'general' | 'wages';
 
 // Children tabs of Organization Settings, not separate routes — switching
 // between them swaps the panel OrganizationSettingsScreen renders below this
 // strip. Same horizontal-scrolling pill-tab-bar pattern as HomeSectionTabs
-// (Home screen), chosen here per explicit instruction over the 2-option
-// SegmentedControl this screen used before Wage Config split into three
-// separate tabs — a scrolling row of pills scales better than equal-width
-// segments once there are more than two.
+// (Home screen). The 3 wage-config resources (Festival/Night Shift/Weekend)
+// used to each be their own top-level tab here — now grouped under one
+// "Wages" tab (see WagesTab.tsx), which owns its own sub-tab switch.
 const TABS: { key: OrganizationSettingsTabKey; label: string }[] = [
   { key: 'general', label: 'General' },
-  { key: 'festival-wages', label: 'Festival Wages' },
-  { key: 'night-shift-wages', label: 'Night Shift Wages' },
-  { key: 'weekend-wages', label: 'Weekend Wages' },
+  { key: 'wages', label: 'Wages' },
 ];
 
 export interface OrganizationSettingsTabsProps {

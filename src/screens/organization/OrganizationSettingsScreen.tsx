@@ -6,9 +6,7 @@ import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { OrganizationSettingsTabs, type OrganizationSettingsTabKey } from './OrganizationSettingsTabs';
 import { GeneralSettingsTab } from './GeneralSettingsTab';
-import { FestivalWagesTab } from './FestivalWagesTab';
-import { NightShiftWagesTab } from './NightShiftWagesTab';
-import { WeekendWagesTab } from './WeekendWagesTab';
+import { WagesTab } from './WagesTab';
 
 const TAB_CONTENT: Record<OrganizationSettingsTabKey, { title: string, subtitle: string; Component: () => React.JSX.Element | null }> = {
   general: {
@@ -16,20 +14,10 @@ const TAB_CONTENT: Record<OrganizationSettingsTabKey, { title: string, subtitle:
     subtitle: "Manage your organization's contact info and weekly schedule.",
     Component: GeneralSettingsTab,
   },
-  'festival-wages': {
-    title: "Festival Wages",
-    subtitle: 'Configure extra pay for shifts on specific calendar dates.',
-    Component: FestivalWagesTab,
-  },
-  'night-shift-wages': {
-    title: "Night Shift Wages",
-    subtitle: 'Configure extra pay for shifts within a night time window.',
-    Component: NightShiftWagesTab,
-  },
-  'weekend-wages': {
-    title: "Weekend Wages",
-    subtitle: "Configure extra pay for shifts on your organization's weekend days.",
-    Component: WeekendWagesTab,
+  wages: {
+    title: "Wages",
+    subtitle: 'Configure extra pay for festival, night shift, and weekend hours.',
+    Component: WagesTab,
   },
 };
 
