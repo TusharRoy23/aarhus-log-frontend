@@ -6,18 +6,19 @@ import { Radius } from '../../theme/radius';
 export interface CheckboxProps {
   checked: boolean;
   onChange: (checked: boolean) => void;
+  disabled?: boolean;
 }
 
-export function Checkbox({ checked, onChange }: CheckboxProps) {
+export function Checkbox({ checked, onChange, disabled = false }: CheckboxProps) {
   return (
     <Pressable
-      onPress={() => onChange(!checked)}
-      style={[styles.box, checked && styles.boxChecked]}
+      onPress={() => !disabled && onChange(!checked)}
+      style={[styles.box, checked && styles.boxChecked, disabled && styles.boxDisabled]}
       hitSlop={8}
       accessibilityRole="checkbox"
-      accessibilityState={{ checked }}
+      accessibilityState={{ checked, disabled }}
     >
-      {checked ? <MaterialIcons name="check" size={14} color={Colors.onPrimary} /> : null}
+      {checked ? <MaterialIcons name="check" size={14} color={disabled ? Colors.onSurfaceVariant : Colors.onPrimary} /> : null}
     </Pressable>
   );
 }
@@ -36,5 +37,9 @@ const styles = StyleSheet.create({
   boxChecked: {
     backgroundColor: Colors.primary,
     borderColor: Colors.primary,
+  },
+  boxDisabled: {
+    backgroundColor: Colors.surfaceContainerLow,
+    borderColor: Colors.outlineVariant,
   },
 });

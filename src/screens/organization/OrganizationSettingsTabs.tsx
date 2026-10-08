@@ -4,7 +4,7 @@ import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
 
-export type OrganizationSettingsTabKey = 'general' | 'wages';
+export type OrganizationSettingsTabKey = 'general' | 'wages' | 'rules';
 
 // Children tabs of Organization Settings, not separate routes — switching
 // between them swaps the panel OrganizationSettingsScreen renders below this
@@ -15,6 +15,7 @@ export type OrganizationSettingsTabKey = 'general' | 'wages';
 const TABS: { key: OrganizationSettingsTabKey; label: string }[] = [
   { key: 'general', label: 'General' },
   { key: 'wages', label: 'Wages' },
+  { key: 'rules', label: 'Rules' },
 ];
 
 export interface OrganizationSettingsTabsProps {
