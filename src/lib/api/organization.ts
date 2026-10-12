@@ -73,10 +73,30 @@ export type RuleSectionUpdatePayload = {
     rules: RuleUpdatePayload[];
 }
 
+export type OverrideRulePayload = {
+    is_active: boolean;
+    number_value?: number;
+    selected_options?: string[];
+    text_value?: string;
+}
+
+export type EmpRulesPayload = {
+    uuid: string;
+    override: OverrideRulePayload;
+    sub_rules?: EmpRulesPayload[];
+}
+
+export type EmpSectionRulesPayload = {
+    uuid: string;
+    override: OverrideRulePayload;
+    rules?: EmpRulesPayload[]
+}
+
 export type RulesUpdatePayload = RuleSectionUpdatePayload[];
 
 const ORGANIZATION_PATH = '/organization/me/';
 const RULES_PATH = '/organization/rule-sections/';
+const EMP_RULES_PATH = '/organization/employees/';
 
 export const organizationApi = {
     get: async (): Promise<Organization> => {
@@ -93,6 +113,14 @@ export const organizationApi = {
     },
     updateRules: async (payload: { sections: RuleSectionUpdatePayload[] }): Promise<{ message: string }> => {
         const response = await baseApi.put<{ message: string }>(apiPath(`/organization/rule-update/`), payload);
+        return response.data;
+    },
+    getEmployeeRules: async (employeeUuid: string): Promise<PaginatedResponse<RuleSection>> => {
+        const response = await baseApi.get<PaginatedResponse<RuleSection>>(apiPath(`${EMP_RULES_PATH}${employeeUuid}/rules/`));
+        return response.data;
+    },
+    updateEmployeeRules: async (employeeUuid: string, payload: { sections: EmpSectionRulesPayload[] }): Promise<{ message: string }> => {
+        const response = await baseApi.put<{ message: string }>(apiPath(`${EMP_RULES_PATH}${employeeUuid}/rules-override/`), payload);
         return response.data;
     }
 };

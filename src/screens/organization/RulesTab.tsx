@@ -2,18 +2,21 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MaterialIcons } from '@expo/vector-icons';
-import { Button, Checkbox } from '../../components/ui';
+import { Button, Checkbox, SegmentedControl, SelectField } from '../../components/ui';
 import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
 import {
   organizationApi,
+  type EmpRulesPayload,
+  type EmpSectionRulesPayload,
   type Rule,
   type RuleSection,
   type RuleSectionUpdatePayload,
   type RuleUpdatePayload,
 } from '../../lib/api/organization';
+import { employeeApi } from '../../lib/api/employee';
 import { getApiErrorMessage } from '../../lib/api/base_api';
 
 // Walks every section's rule tree (rules + sub_rules, uuid is assumed unique
@@ -59,6 +62,31 @@ function toSectionsUpdatePayload(sections: RuleSection[]): RuleSectionUpdatePayl
     uuid: section.uuid,
     is_active: section.is_active,
     rules: section.rules.map(toRuleUpdatePayload),
+  }));
+}
+
+// Employee-level overrides send the same per-rule fields, just nested under
+// `override` instead of sitting directly on the rule, and drop `input_type`
+// (the org already knows that). Built from the org-shaped payload above
+// rather than duplicating toRuleUpdatePayload's field-picking logic.
+function toEmpRulePayload(rule: RuleUpdatePayload): EmpRulesPayload {
+  return {
+    uuid: rule.uuid,
+    override: {
+      is_active: rule.is_active,
+      ...(rule.number_value !== undefined ? { number_value: rule.number_value } : {}),
+      ...(rule.selected_options !== undefined ? { selected_options: rule.selected_options } : {}),
+      ...(rule.text_value !== undefined ? { text_value: rule.text_value } : {}),
+    },
+    ...(rule.sub_rules?.length ? { sub_rules: rule.sub_rules.map(toEmpRulePayload) } : {}),
+  };
+}
+
+function toEmpSectionsUpdatePayload(sections: RuleSectionUpdatePayload[]): EmpSectionRulesPayload[] {
+  return sections.map((section) => ({
+    uuid: section.uuid,
+    override: { is_active: section.is_active },
+    ...(section.rules.length ? { rules: section.rules.map(toEmpRulePayload) } : {}),
   }));
 }
 
@@ -191,33 +219,25 @@ function RuleRow({ rule, depth, ancestorsActive, onToggle, onNumberChange, onTex
   );
 }
 
-// The "Rules" tab on Organization Settings — each rule section renders as
-// its own card (table), with every rule (and nested sub-rule, indented)
-// shown as a checkbox + label + value-input row regardless of its is_active
-// state, so the admin can see and toggle everything from one screen rather
-// than only already-enabled rules.
-export function RulesTab() {
-  const queryClient = useQueryClient();
-  const { data: ruleSections, isPending, isError, error } = useQuery({
-    queryKey: ['rule-sections'],
-    queryFn: organizationApi.getRules,
-  });
+interface RuleSectionsEditorProps {
+  /** The latest server state for this scope (organization-wide, or one
+   * employee's overrides) — the editor keeps its own local copy seeded
+   * from this, so it only resyncs when the source itself actually changes
+   * (initial load, switching employee, or a save invalidating the query). */
+  sections: RuleSection[];
+  isSaving: boolean;
+  onSave: (payload: RuleSectionUpdatePayload[]) => void;
+}
 
-  const [sections, setSections] = useState<RuleSection[]>([]);
-  const [errorModal, setErrorModal] = useState<string | undefined>();
+// Shared checkbox/label/value-field tree editor — the same UI serves both
+// the organization-level rules and a single employee's overrides of that
+// same tree, since both are "a list of RuleSections" with identical shape.
+function RuleSectionsEditor({ sections: sourceSections, isSaving, onSave }: RuleSectionsEditorProps) {
+  const [sections, setSections] = useState<RuleSection[]>(sourceSections);
 
   useEffect(() => {
-    if (ruleSections) setSections(ruleSections.results);
-  }, [ruleSections]);
-
-  const updateMutation = useMutation({
-    mutationFn: (payload: RuleSectionUpdatePayload[]) => organizationApi.updateRules({ sections: payload }),
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['rule-sections'] });
-      Alert.alert('Saved', data.message ?? 'Changes saved successfully.');
-    },
-    onError: (mutationError) => setErrorModal(getApiErrorMessage(mutationError, 'Something went wrong. Please try again.')),
-  });
+    setSections(sourceSections);
+  }, [sourceSections]);
 
   const toggleSection = (uuid: string) => {
     setSections((prev) =>
@@ -254,17 +274,8 @@ export function RulesTab() {
     setSections((prev) => updateRuleInSections(prev, uuid, (rule) => ({ ...rule, selected_options: option })));
   };
 
-  const handleSave = () => updateMutation.mutate(toSectionsUpdatePayload(sections));
-
-  if (isPending) {
-    return <ActivityIndicator color={Colors.primary} style={styles.loading} />;
-  }
-  if (isError) {
-    return <Text style={styles.errorText}>{getApiErrorMessage(error, 'Failed to load rules.')}</Text>;
-  }
-
   return (
-    <View style={styles.container}>
+    <View style={styles.editor}>
       {sections.map((section) => (
         <View key={section.uuid} style={styles.card}>
           <View style={styles.sectionHeader}>
@@ -288,22 +299,167 @@ export function RulesTab() {
         </View>
       ))}
 
-      <Button label="Save Changes" onPress={handleSave} loading={updateMutation.isPending} />
+      <Button label="Save Changes" onPress={() => onSave(toSectionsUpdatePayload(sections))} loading={isSaving} />
+    </View>
+  );
+}
 
-      <Modal visible={!!errorModal} transparent animationType="fade" onRequestClose={() => setErrorModal(undefined)}>
-        <View style={styles.overlay}>
-          <View style={styles.errorSheet}>
-            <Text style={styles.sectionTitle}>Failed to save</Text>
-            <Text style={styles.errorText}>{errorModal}</Text>
-            <Button label="OK" onPress={() => setErrorModal(undefined)} />
-          </View>
+interface SaveErrorModalProps {
+  message: string | undefined;
+  onClose: () => void;
+}
+
+function SaveErrorModal({ message, onClose }: SaveErrorModalProps) {
+  return (
+    <Modal visible={!!message} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.overlay}>
+        <View style={styles.errorSheet}>
+          <Text style={styles.sectionTitle}>Failed to save</Text>
+          <Text style={styles.errorText}>{message}</Text>
+          <Button label="OK" onPress={onClose} />
         </View>
-      </Modal>
+      </View>
+    </Modal>
+  );
+}
+
+// The organization-wide rule tree — every admin sees and edits the same
+// one. Mounted only while its sub-tab is active.
+function OrganizationRulesPanel() {
+  const queryClient = useQueryClient();
+  const { data: ruleSections, isPending, isError, error } = useQuery({
+    queryKey: ['rule-sections'],
+    queryFn: organizationApi.getRules,
+  });
+  const [errorModal, setErrorModal] = useState<string | undefined>();
+
+  const updateMutation = useMutation({
+    mutationFn: (payload: RuleSectionUpdatePayload[]) => organizationApi.updateRules({ sections: payload }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['rule-sections'] });
+      Alert.alert('Saved', data.message ?? 'Changes saved successfully.');
+    },
+    onError: (mutationError) => setErrorModal(getApiErrorMessage(mutationError, 'Something went wrong. Please try again.')),
+  });
+
+  if (isPending) {
+    return <ActivityIndicator color={Colors.primary} style={styles.loading} />;
+  }
+  if (isError) {
+    return <Text style={styles.errorText}>{getApiErrorMessage(error, 'Failed to load rules.')}</Text>;
+  }
+
+  return (
+    <>
+      <RuleSectionsEditor
+        sections={ruleSections.results}
+        isSaving={updateMutation.isPending}
+        onSave={(payload) => updateMutation.mutate(payload)}
+      />
+      <SaveErrorModal message={errorModal} onClose={() => setErrorModal(undefined)} />
+    </>
+  );
+}
+
+// Same rule tree, but scoped to one employee's own overrides — the admin
+// picks an employee first, then sees/edits exactly the same editor UI as
+// the organization-level panel. getEmployeeRules/updateEmployeeRules are
+// placeholders ahead of the real backend contract (see organization.ts).
+function EmployeeRulesPanel() {
+  const queryClient = useQueryClient();
+  const { data: employeeData } = useQuery({ queryKey: ['employees'], queryFn: employeeApi.list });
+  const employeeOptions = (employeeData?.results ?? [])
+    .filter((employee) => employee.is_active)
+    .map((employee) => ({ label: `${employee.first_name} ${employee.last_name}`, value: employee.uuid }));
+
+  const [employeeUuid, setEmployeeUuid] = useState('');
+  const [errorModal, setErrorModal] = useState<string | undefined>();
+
+  const { data: ruleSections, isPending, isError, error } = useQuery({
+    queryKey: ['employee-rule-sections', employeeUuid],
+    queryFn: () => organizationApi.getEmployeeRules(employeeUuid),
+    enabled: !!employeeUuid,
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: (payload: EmpSectionRulesPayload[]) => organizationApi.updateEmployeeRules(employeeUuid, { sections: payload }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['employee-rule-sections', employeeUuid] });
+      Alert.alert('Saved', data.message ?? 'Changes saved successfully.');
+    },
+    onError: (mutationError) => setErrorModal(getApiErrorMessage(mutationError, 'Something went wrong. Please try again.')),
+  });
+
+  return (
+    <View style={styles.editor}>
+      <SelectField
+        label="Employee"
+        placeholder="Select an employee"
+        value={employeeUuid}
+        options={employeeOptions}
+        onChange={setEmployeeUuid}
+        icon={<MaterialIcons name="person" size={20} color={Colors.outline} />}
+      />
+
+      {!employeeUuid ? (
+        <Text style={styles.helperText}>Select an employee to view and edit their rule overrides.</Text>
+      ) : isPending ? (
+        <ActivityIndicator color={Colors.primary} style={styles.loading} />
+      ) : isError ? (
+        <Text style={styles.errorText}>{getApiErrorMessage(error, 'Failed to load rules.')}</Text>
+      ) : (
+        <RuleSectionsEditor
+          sections={ruleSections.results}
+          isSaving={updateMutation.isPending}
+          onSave={(payload) => updateMutation.mutate(toEmpSectionsUpdatePayload(payload))}
+        />
+      )}
+
+      <SaveErrorModal message={errorModal} onClose={() => setErrorModal(undefined)} />
+    </View>
+  );
+}
+
+type RulesScope = 'organization' | 'employee';
+
+// The "Rules" tab on Organization Settings — Organization/Employee is a
+// local sub-tab switch (not a route), same pattern as WagesTab's own
+// Festival/Night Shift/Weekend split. Each rule section renders as its own
+// card (table), with every rule (and nested sub-rule, indented) shown as a
+// checkbox + label + value-input row regardless of its is_active state, so
+// the admin can see and toggle everything from one screen rather than only
+// already-enabled rules.
+export function RulesTab() {
+  const [scope, setScope] = useState<RulesScope>('organization');
+
+  return (
+    <View style={styles.container}>
+      <SegmentedControl
+        options={[
+          { value: 'organization', label: 'Organization' },
+          { value: 'employee', label: 'Employee' },
+        ]}
+        value={scope}
+        onChange={setScope}
+      />
+      {/* Both panels stay mounted — switching the segment only hides the
+          other one (display: 'none'), rather than unmounting it. Unmounting
+          would reset EmployeeRulesPanel's selected employee and any
+          in-progress edits every time the admin glances at the other tab. */}
+      <View style={scope !== 'organization' && styles.hidden}>
+        <OrganizationRulesPanel />
+      </View>
+      <View style={scope !== 'employee' && styles.hidden}>
+        <EmployeeRulesPanel />
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  hidden: {
+    display: 'none',
+  },
   loading: {
     marginTop: Spacing.sectionGap,
   },
@@ -311,7 +467,14 @@ const styles = StyleSheet.create({
     ...Typography.bodyMd,
     color: Colors.error,
   },
+  helperText: {
+    ...Typography.bodyMd,
+    color: Colors.onSurfaceVariant,
+  },
   container: {
+    gap: Spacing.gutter,
+  },
+  editor: {
     gap: Spacing.gutter,
   },
   card: {
