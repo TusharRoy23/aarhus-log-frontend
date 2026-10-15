@@ -198,6 +198,30 @@ export const ScheduleTypes = {
 
 export type ScheduleType = (typeof ScheduleTypes)[keyof typeof ScheduleTypes];
 
+type RuleViolationSeverity = "warning" | "blocking";
+
+interface RuleViolation {
+    code: string;
+    label: string;
+    message: string;
+    severity: RuleViolationSeverity;
+}
+
+interface RuleViolationEmployee {
+    uuid: string;
+    first_name: string;
+    last_name: string;
+    employee_code: string;
+}
+
+interface EmployeeRuleViolations {
+    employee: RuleViolationEmployee;
+    violations: RuleViolation[];
+}
+
+// GET /bulk-schedules/<uuid>/rule-violations/ response
+type BulkScheduleRuleViolationsResponse = EmployeeRuleViolations[];
+
 const SCHEDULES_PATH = '/employee/schedules/';
 const BULK_SCHEDULES_PATH = '/employee/bulk-schedules/';
 
@@ -277,6 +301,22 @@ export const scheduleApi = {
     },
     getWeeklyCosts: async (week_number: number): Promise<WeeklyCost> => {
         const response = await baseApi.get<WeeklyCost>(apiPath(`/employee/weekly-costs/${week_number}/`));
+        return response.data;
+    },
+    saveDraftSchedule: async (payload: CreateSchedulePayload, week_number: number): Promise<BulkSchedule> => {
+        const response = await baseApi.post(apiPath(`${BULK_SCHEDULES_PATH}${week_number}/draft/`), payload);
+        return response.data;
+    },
+    deleteDraftSchedule: async (bulkScheduleUuid: string, scheduleUuid: string): Promise<BulkSchedule> => {
+        const response = await baseApi.delete(apiPath(`${BULK_SCHEDULES_PATH}${bulkScheduleUuid}/schedules/${scheduleUuid}/`));
+        return response.data;
+    },
+    publishDraftSchedule: async (bulkScheduleUuid: string): Promise<BulkSchedule> => {
+        const response = await baseApi.post(apiPath(`${BULK_SCHEDULES_PATH}${bulkScheduleUuid}/publish/`));
+        return response.data;
+    },
+    getViolatedRules: async (scheduleUuid: string): Promise<BulkScheduleRuleViolationsResponse> => {
+        const response = await baseApi.get(apiPath(`${BULK_SCHEDULES_PATH}${scheduleUuid}/rule-violations/`));
         return response.data;
     }
 };

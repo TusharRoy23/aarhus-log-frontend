@@ -13,8 +13,8 @@ import { employeeApi } from '../../lib/api/employee';
 import {
   BulkScheduleStatus,
   scheduleApi,
-  type BulkScheduleItem,
-  type CreateBulkSchedulePayload,
+  type BulkSchedule,
+  type CreateSchedulePayload,
   type Schedule,
   type DailyCost,
   type ShiftPlanPayload,
@@ -35,6 +35,9 @@ interface WeekEntry {
   entries: BulkShiftEntry[];
   saveStatus: 'unsaved' | 'draft' | 'published';
   dailyCosts: DailyCost[];
+  /** The underlying BulkSchedule's own uuid, needed to publish — null until
+   * the first shift has actually been saved as a draft. */
+  bulkScheduleUuid: string | null;
 }
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -103,11 +106,11 @@ function addableWorkWeeks(workWeeks: WorkWeek[], usedWeeks: WorkWeek[]): WorkWee
 // Converts an existing bulk schedule's flat Schedule[] back into the entry
 // list the grid edits. Employees no longer active won't appear in the
 // employee picker, but their existing entries still render (looked up by
-// uuid, falling back to "Unknown employee" if not found) — the shift is only
-// silently dropped from the payload on next save (see buildBulkScheduleItems),
-// same "auto-populate active employees only" boundary already accepted for
-// create, not a new gap introduced by editing. Exported for reuse by
-// BulkScheduleViewScreen's own (read-only) entry population.
+// uuid, falling back to "Unknown employee" if not found) — resaving one of
+// those as-is (without changing its employee) still sends that now-inactive
+// employee's uuid, since saving is now per-shift with no whole-week active-
+// employee filter. Exported for reuse by BulkScheduleViewScreen's own
+// (read-only) entry population.
 export function buildEntriesFromSchedules(schedules: Schedule[], weekStart: Date): BulkShiftEntry[] {
   if (!schedules || schedules.length === 0) return [];
   const entries: BulkShiftEntry[] = [];
@@ -181,42 +184,63 @@ async function fetchWeekEntry(week: WorkWeek): Promise<WeekEntry> {
       entries: buildEntriesFromSchedules(existing.schedules, parseDateOnly(week.start_date)),
       saveStatus: existing.status === BulkScheduleStatus.PUBLISHED ? 'published' : 'draft',
       dailyCosts: await fetchWeeklyCosts(week.week_number),
+      bulkScheduleUuid: existing.uuid,
     };
   } catch {
     // No bulk schedule exists yet for this week (404), or a transient fetch
     // error — either way, start this week blank rather than blocking the
     // flow. Re-picking the same week retries the lookup.
-    return { week, entries: [], saveStatus: 'unsaved', dailyCosts: [] };
+    return { week, entries: [], saveStatus: 'unsaved', dailyCosts: [], bulkScheduleUuid: null };
   }
 }
 
-// Every entry in `week` becomes one bulk-schedule item — entries for an
-// employee no longer active are silently dropped (same "auto-populate active
-// employees only" boundary this screen has always had). Overnight shifts
-// (end time-of-day <= start time-of-day) roll the end onto the next calendar
-// day — same convention used for display elsewhere in this app, applied here
-// to the actual payload dates. Dates come from the week's own authoritative
+// One entry becomes one single-shift payload for saveDraftSchedule — each
+// shift is now saved on its own as soon as the admin saves it in the editor,
+// not batched into one whole-week request. Overnight shifts (end time-of-day
+// <= start time-of-day) roll the end onto the next calendar day — same
+// convention used for display elsewhere in this app, applied here to the
+// actual payload dates. Dates come from the week's own authoritative
 // `start_date` (parsed as local midnight, not handed straight to `new
 // Date()` — a bare date-only string parses as UTC otherwise).
-function buildBulkScheduleItems(week: WeekEntry, employees: BulkEmployeeRow[]): BulkScheduleItem[] {
-  const weekStart = parseDateOnly(week.week.start_date);
-  const activeEmployeeUuids = new Set(employees.map((employee) => employee.uuid));
-  const items: BulkScheduleItem[] = [];
-  for (const entry of week.entries) {
-    if (!activeEmployeeUuids.has(entry.employeeUuid)) continue;
-    const startDate = addDaysToDate(weekStart, entry.dayIndex);
-    const endDate =
-      timeToMinutes(entry.end) <= timeToMinutes(entry.start) ? addDaysToDate(startDate, 1) : startDate;
-    items.push({
-      employee_uuid: entry.employeeUuid,
-      start_time: combineDateAndTime(startDate, entry.start),
-      end_time: combineDateAndTime(endDate, entry.end),
-      break_time: entry.breakMinutes ? toBreakTimeString(entry.breakMinutes) : '',
-      is_scannable: entry.isScannable,
-      ...(entry.workLocationUuid ? { work_location_uuid: entry.workLocationUuid } : {}),
-    });
-  }
-  return items;
+function buildSchedulePayload(entry: BulkShiftEntry, weekStart: Date): CreateSchedulePayload {
+  const startDate = addDaysToDate(weekStart, entry.dayIndex);
+  const endDate = timeToMinutes(entry.end) <= timeToMinutes(entry.start) ? addDaysToDate(startDate, 1) : startDate;
+  return {
+    employee_uuid: entry.employeeUuid,
+    start_time: combineDateAndTime(startDate, entry.start),
+    end_time: combineDateAndTime(endDate, entry.end),
+    break_time: entry.breakMinutes ? toBreakTimeString(entry.breakMinutes) : '',
+    is_scannable: entry.isScannable,
+    ...(entry.workLocationUuid ? { work_location_uuid: entry.workLocationUuid } : {}),
+  };
+}
+
+// Exactly one entry is added or edited per shift-editor Save (the grid never
+// changes more than one at once) — this picks that entry out by diffing
+// against the previous entries by id. A pure removal yields nothing here,
+// since there's no bulk-schedule delete endpoint yet (see updateEntries).
+function changedEntries(before: BulkShiftEntry[], after: BulkShiftEntry[]): BulkShiftEntry[] {
+  const beforeById = new Map(before.map((entry) => [entry.id, entry]));
+  return after.filter((entry) => {
+    const previous = beforeById.get(entry.id);
+    return !previous || JSON.stringify(previous) !== JSON.stringify(entry);
+  });
+}
+
+// Entries present in `before` but gone from `after` — removed via the
+// grid's "Remove" button.
+function removedEntries(before: BulkShiftEntry[], after: BulkShiftEntry[]): BulkShiftEntry[] {
+  const afterIds = new Set(after.map((entry) => entry.id));
+  return before.filter((entry) => !afterIds.has(entry.id));
+}
+
+// createEntryId (BulkScheduleWeekGrid.tsx) prefixes every client-generated
+// id with 'entry-' — such an entry was never confirmed saved (its own
+// saveDraftSchedule call hasn't resolved, or failed), so there's nothing on
+// the server to delete yet. Any other id is a real schedule uuid, either
+// loaded from the server or reconciled in after a previous successful save.
+function isClientOnlyEntryId(id: string): boolean {
+  return id.startsWith('entry-');
 }
 
 function countScheduledEmployees(week: WeekEntry, employees: BulkEmployeeRow[]): number {
@@ -301,6 +325,7 @@ export function BulkScheduleScreen() {
             entries,
             saveStatus: existingBulkSchedule.status === BulkScheduleStatus.PUBLISHED ? 'published' : 'draft',
             dailyCosts,
+            bulkScheduleUuid: existingBulkSchedule.uuid,
           },
         ]);
         isSeedingRef.current = false;
@@ -354,11 +379,30 @@ export function BulkScheduleScreen() {
     );
   };
 
+  // Both saveDraftSchedule and deleteDraftSchedule return the bulk
+  // schedule's current state — reconciling local entries from that response
+  // (rather than patching just the one entry that changed) is what lets
+  // newly-saved entries pick up their real server-assigned uuid.
+  const applyBulkScheduleResult = (weekIndex: number, weekStart: Date, bulkSchedule: BulkSchedule) => {
+    setWeeks((prev) =>
+      prev.map((card, index) =>
+        index === weekIndex
+          ? {
+            ...card,
+            entries: buildEntriesFromSchedules(bulkSchedule.schedules, weekStart),
+            bulkScheduleUuid: bulkSchedule.uuid,
+            saveStatus: bulkSchedule.status === BulkScheduleStatus.PUBLISHED ? 'published' : 'draft',
+          }
+          : card,
+      ),
+    );
+  };
+
   // Every create/update prices each changed day from its own shifts via the
   // estimate endpoint — saved costs are only read back when a saved week is
   // opened.
   const updateEntries = (weekIndex: number, nextEntries: BulkShiftEntry[]) => {
-    const { week, entries: previousEntries } = weeks[weekIndex];
+    const { week, entries: previousEntries, bulkScheduleUuid } = weeks[weekIndex];
     setWeeks((prev) => prev.map((card, index) => (index === weekIndex ? { ...card, entries: nextEntries } : card)));
     const weekStart = parseDateOnly(week.start_date);
     for (const dayIndex of changedDayIndexes(previousEntries, nextEntries)) {
@@ -379,6 +423,32 @@ export function BulkScheduleScreen() {
             lines: errorLines(error, 'Could not estimate the cost for this day.'),
           });
           setDayCost(weekIndex, date, undefined);
+        });
+    }
+
+    // Each added/edited shift is saved on its own right away — there's no
+    // separate "Save Draft" step anymore.
+    for (const entry of changedEntries(previousEntries, nextEntries)) {
+      scheduleApi
+        .saveDraftSchedule(buildSchedulePayload(entry, weekStart), week.week_number)
+        .then((bulkSchedule) => applyBulkScheduleResult(weekIndex, weekStart, bulkSchedule))
+        .catch((error) => {
+          setErrorModal({ title: 'Could not save shift', lines: errorLines(error, 'Something went wrong. Please try again.') });
+        });
+    }
+
+    // A removed entry that was never actually saved (still carrying its
+    // client-generated id — see createEntryId in BulkScheduleWeekGrid) has
+    // nothing on the server to delete, so it's dropped locally with no API
+    // call. An already-saved entry (a real schedule uuid) calls
+    // deleteDraftSchedule to remove it from the bulk schedule for real.
+    for (const entry of removedEntries(previousEntries, nextEntries)) {
+      if (isClientOnlyEntryId(entry.id) || !bulkScheduleUuid) continue;
+      scheduleApi
+        .deleteDraftSchedule(bulkScheduleUuid, entry.id)
+        .then((bulkSchedule) => applyBulkScheduleResult(weekIndex, weekStart, bulkSchedule))
+        .catch((error) => {
+          setErrorModal({ title: 'Could not remove shift', lines: errorLines(error, 'Something went wrong. Please try again.') });
         });
     }
   };
@@ -410,53 +480,39 @@ export function BulkScheduleScreen() {
     setIsResolvingWeek(false);
   };
 
-  const bulkSaveMutation = useMutation({
-    mutationFn: (payload: CreateBulkSchedulePayload) =>
-      isEditing && weekNumberParam
-        ? scheduleApi.updateWeeklyShifts(payload, Number(weekNumberParam))
-        : scheduleApi.bulkCreate(payload),
+  // Publishing now only needs the bulk schedule's own uuid — each shift was
+  // already saved as a draft individually as it was added/edited, so there's
+  // no payload left to build here.
+  const publishMutation = useMutation({
+    mutationFn: (bulkScheduleUuid: string) => scheduleApi.publishDraftSchedule(bulkScheduleUuid),
   });
 
-  const handleSave = (status: BulkScheduleStatus) => {
-    const items = buildBulkScheduleItems(activeWeek, employees);
-    if (items.length === 0) {
-      Alert.alert('Nothing to save', 'Add at least one shift before saving.');
-      return;
-    }
-    bulkSaveMutation.mutate(
-      { week: activeWeek.week.week_number, schedules: items, status },
-      {
-        onSuccess: () => {
-          setWeeks((prev) =>
-            prev.map((week, index) =>
-              index === activeWeekIndex
-                ? { ...week, saveStatus: status }
-                : week,
-            ),
-          );
-          // Bulk Schedules list reads from this same key — refetch it so an
-          // edit (or a brand new roster) shows up there without a manual pull.
-          queryClient.invalidateQueries({ queryKey: ['bulk-schedules'] });
-          // A bulk create/update also creates/updates individual Schedule
-          // records under the hood — invalidating just `['bulk-schedules']`
-          // left every individual-schedule list (Home's "My Schedule" tab,
-          // "All Schedules", Manage Schedules' Individual tab — each keyed
-          // `['schedules', ...different params]`) showing stale data until
-          // its own staleTime happened to expire. `queryClient.invalidateQueries`
-          // matches by key PREFIX, not exact equality, so `['schedules']`
-          // alone invalidates every one of those variants in one call — same
-          // convention CreateShiftScreen's own create/update already uses.
-          queryClient.invalidateQueries({ queryKey: ['schedules'] });
-          Alert.alert(
-            status === BulkScheduleStatus.DRAFT ? 'Draft saved' : 'Schedule published',
-            status === BulkScheduleStatus.DRAFT ? "This week's roster has been saved as a draft." : 'This week has been published.',
-          );
-        },
-        onError: (error) => {
-          setErrorModal({ title: 'Failed to save', lines: errorLines(error, 'Something went wrong. Please try again.') });
-        },
+  const handlePublish = () => {
+    const bulkScheduleUuid = activeWeek.bulkScheduleUuid;
+    if (!bulkScheduleUuid) return; // guarded by the Publish button's own disabled state too
+    const weekIndex = activeWeekIndex;
+    const weekStart = parseDateOnly(activeWeek.week.start_date);
+    publishMutation.mutate(bulkScheduleUuid, {
+      onSuccess: (bulkSchedule) => {
+        setWeeks((prev) =>
+          prev.map((week, index) =>
+            index === weekIndex
+              ? {
+                ...week,
+                saveStatus: 'published',
+                entries: buildEntriesFromSchedules(bulkSchedule.schedules, weekStart),
+              }
+              : week,
+          ),
+        );
+        queryClient.invalidateQueries({ queryKey: ['bulk-schedules'] });
+        queryClient.invalidateQueries({ queryKey: ['schedules'] });
+        Alert.alert('Schedule published', 'This week has been published.');
       },
-    );
+      onError: (error) => {
+        setErrorModal({ title: 'Failed to publish', lines: errorLines(error, 'Something went wrong. Please try again.') });
+      },
+    });
   };
 
   return (
@@ -598,16 +654,10 @@ export function BulkScheduleScreen() {
           </View>
           <View style={styles.bottomBarActions}>
             <Button
-              label="Save Draft"
-              variant="secondary"
-              onPress={() => handleSave(BulkScheduleStatus.DRAFT)}
-              loading={bulkSaveMutation.isPending}
-              style={styles.bottomBarButton}
-            />
-            <Button
               label={`Publish (W${activeWeek.week.week_number})`}
-              onPress={() => handleSave(BulkScheduleStatus.PUBLISHED)}
-              loading={bulkSaveMutation.isPending}
+              onPress={handlePublish}
+              disabled={!activeWeek.bulkScheduleUuid}
+              loading={publishMutation.isPending}
               style={styles.bottomBarButton}
             />
           </View>
