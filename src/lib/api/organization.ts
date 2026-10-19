@@ -50,8 +50,8 @@ export type RuleSection = {
     uuid: string;
     label: string;
     is_active: boolean;
-    created_at: string;
     rules: Rule[];
+    exempt: boolean;
 }
 
 // The slim shape sent back on save — only the fields the admin can actually
@@ -93,6 +93,10 @@ export type EmpSectionRulesPayload = {
 }
 
 export type RulesUpdatePayload = RuleSectionUpdatePayload[];
+export type ExemptRulesPayload = {
+    section_uuid: string;
+    exempt: boolean;
+}
 
 const ORGANIZATION_PATH = '/organization/me/';
 const RULES_PATH = '/organization/rule-sections/';
@@ -121,6 +125,10 @@ export const organizationApi = {
     },
     updateEmployeeRules: async (employeeUuid: string, payload: { sections: EmpSectionRulesPayload[] }): Promise<{ message: string }> => {
         const response = await baseApi.put<{ message: string }>(apiPath(`${EMP_RULES_PATH}${employeeUuid}/rules-override/`), payload);
+        return response.data;
+    },
+    exemptRulesForEmployee: async (employeeUuid: string, payload: ExemptRulesPayload): Promise<{ message: string }> => {
+        const response = await baseApi.put<{ message: string }>(apiPath(`${EMP_RULES_PATH}${employeeUuid}/exempt-rules/`), payload);
         return response.data;
     }
 };

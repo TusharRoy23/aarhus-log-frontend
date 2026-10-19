@@ -11,6 +11,7 @@ import {
   organizationApi,
   type EmpRulesPayload,
   type EmpSectionRulesPayload,
+  type ExemptRulesPayload,
   type Rule,
   type RuleSection,
   type RuleSectionUpdatePayload,
@@ -227,12 +228,18 @@ interface RuleSectionsEditorProps {
   sections: RuleSection[];
   isSaving: boolean;
   onSave: (payload: RuleSectionUpdatePayload[]) => void;
+  /** Only meaningful for an employee's own rule tree — marking a whole
+   * section exempt for this employee calls the server immediately rather
+   * than waiting for "Save Changes". Omitted on the organization-level
+   * panel, where exemption doesn't apply, so the checkbox never renders
+   * there. */
+  onToggleExempt?: (sectionUuid: string, exempt: boolean) => void;
 }
 
 // Shared checkbox/label/value-field tree editor — the same UI serves both
 // the organization-level rules and a single employee's overrides of that
 // same tree, since both are "a list of RuleSections" with identical shape.
-function RuleSectionsEditor({ sections: sourceSections, isSaving, onSave }: RuleSectionsEditorProps) {
+function RuleSectionsEditor({ sections: sourceSections, isSaving, onSave, onToggleExempt }: RuleSectionsEditorProps) {
   const [sections, setSections] = useState<RuleSection[]>(sourceSections);
 
   useEffect(() => {
@@ -274,13 +281,26 @@ function RuleSectionsEditor({ sections: sourceSections, isSaving, onSave }: Rule
     setSections((prev) => updateRuleInSections(prev, uuid, (rule) => ({ ...rule, selected_options: option })));
   };
 
+  const toggleExempt = (uuid: string, nextExempt: boolean) => {
+    setSections((prev) => prev.map((section) => (section.uuid === uuid ? { ...section, exempt: nextExempt } : section)));
+    onToggleExempt?.(uuid, nextExempt);
+  };
+
   return (
     <View style={styles.editor}>
-      {sections.map((section) => (
+      {sections.map((section) => section.rules.length > 0 && (
         <View key={section.uuid} style={styles.card}>
           <View style={styles.sectionHeader}>
-            <Checkbox checked={section.is_active} onChange={() => toggleSection(section.uuid)} />
-            <Text style={[styles.sectionTitle, !section.is_active && styles.ruleLabelDisabled]}>{section.label}</Text>
+            <View style={styles.sectionHeaderLeft}>
+              <Checkbox checked={section.is_active} onChange={() => toggleSection(section.uuid)} />
+              <Text style={[styles.sectionTitle, !section.is_active && styles.ruleLabelDisabled]}>{section.label}</Text>
+            </View>
+            {onToggleExempt ? (
+              <Pressable style={styles.exemptToggle} onPress={() => toggleExempt(section.uuid, !section.exempt)}>
+                <Checkbox checked={section.exempt} onChange={(checked) => toggleExempt(section.uuid, checked)} />
+                <Text style={styles.exemptLabel}>Exempt</Text>
+              </Pressable>
+            ) : null}
           </View>
           <View style={styles.sectionBody}>
             {section.rules.map((rule) => (
@@ -337,6 +357,7 @@ function OrganizationRulesPanel() {
     mutationFn: (payload: RuleSectionUpdatePayload[]) => organizationApi.updateRules({ sections: payload }),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['rule-sections'] });
+      queryClient.invalidateQueries({ queryKey: ['employee-rule-sections'] });
       Alert.alert('Saved', data.message ?? 'Changes saved successfully.');
     },
     onError: (mutationError) => setErrorModal(getApiErrorMessage(mutationError, 'Something went wrong. Please try again.')),
@@ -390,6 +411,11 @@ function EmployeeRulesPanel() {
     onError: (mutationError) => setErrorModal(getApiErrorMessage(mutationError, 'Something went wrong. Please try again.')),
   });
 
+  const exemptMutation = useMutation({
+    mutationFn: (payload: ExemptRulesPayload) => organizationApi.exemptRulesForEmployee(employeeUuid, payload),
+    onError: (mutationError) => setErrorModal(getApiErrorMessage(mutationError, 'Something went wrong. Please try again.')),
+  });
+
   return (
     <View style={styles.editor}>
       <SelectField
@@ -412,6 +438,7 @@ function EmployeeRulesPanel() {
           sections={ruleSections.results}
           isSaving={updateMutation.isPending}
           onSave={(payload) => updateMutation.mutate(toEmpSectionsUpdatePayload(payload))}
+          onToggleExempt={(sectionUuid, exempt) => exemptMutation.mutate({ section_uuid: sectionUuid, exempt })}
         />
       )}
 
@@ -488,7 +515,23 @@ const styles = StyleSheet.create({
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
+    justifyContent: 'space-between',
     gap: Spacing.unit * 2,
+  },
+  sectionHeaderLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.unit * 2,
+  },
+  exemptToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.unit,
+  },
+  exemptLabel: {
+    ...Typography.labelSm,
+    color: Colors.onSurfaceVariant,
   },
   sectionTitle: {
     ...Typography.titleMd,

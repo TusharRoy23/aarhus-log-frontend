@@ -15,6 +15,7 @@ import {
   scheduleApi,
   type BulkSchedule,
   type CreateSchedulePayload,
+  type EmployeeRuleViolations,
   type Schedule,
   type DailyCost,
   type ShiftPlanPayload,
@@ -38,6 +39,11 @@ interface WeekEntry {
   /** The underlying BulkSchedule's own uuid, needed to publish — null until
    * the first shift has actually been saved as a draft. */
   bulkScheduleUuid: string | null;
+  /** null = never fetched yet; [] = fetched, no violations. */
+  ruleViolations: EmployeeRuleViolations[];
+  violationsLoading: boolean;
+  /** Non-collapsed by default. */
+  violationsCollapsed: boolean;
 }
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -163,7 +169,8 @@ function shiftPlanForGroup(group: { start: string; end: string; entries: BulkShi
 
 async function fetchWeeklyCosts(weekNumber: number): Promise<DailyCost[]> {
   try {
-    return (await scheduleApi.getWeeklyCosts(weekNumber)).days;
+    const response = await scheduleApi.getWeeklyCosts(weekNumber);
+    return response.days;
   } catch {
     return [];
   }
@@ -185,17 +192,27 @@ async function fetchWeekEntry(week: WorkWeek): Promise<WeekEntry> {
       saveStatus: existing.status === BulkScheduleStatus.PUBLISHED ? 'published' : 'draft',
       dailyCosts: await fetchWeeklyCosts(week.week_number),
       bulkScheduleUuid: existing.uuid,
+      ruleViolations: [],
+      violationsLoading: false,
+      violationsCollapsed: false,
     };
   } catch {
-    // No bulk schedule exists yet for this week (404), or a transient fetch
-    // error — either way, start this week blank rather than blocking the
-    // flow. Re-picking the same week retries the lookup.
-    return { week, entries: [], saveStatus: 'unsaved', dailyCosts: [], bulkScheduleUuid: null };
+    return {
+      week,
+      entries: [],
+      saveStatus: 'unsaved',
+      dailyCosts: [],
+      bulkScheduleUuid: null,
+      ruleViolations: [],
+      violationsLoading: false,
+      violationsCollapsed: false,
+    };
   }
 }
 
-// One entry becomes one single-shift payload for saveDraftSchedule — each
-// shift is now saved on its own as soon as the admin saves it in the editor,
+// One entry becomes one single-shift payload for createDraftSchedule/
+// updateDraftSchedule — each shift is now saved on its own as soon as the
+// admin saves it in the editor,
 // not batched into one whole-week request. Overnight shifts (end time-of-day
 // <= start time-of-day) roll the end onto the next calendar day — same
 // convention used for display elsewhere in this app, applied here to the
@@ -236,9 +253,11 @@ function removedEntries(before: BulkShiftEntry[], after: BulkShiftEntry[]): Bulk
 
 // createEntryId (BulkScheduleWeekGrid.tsx) prefixes every client-generated
 // id with 'entry-' — such an entry was never confirmed saved (its own
-// saveDraftSchedule call hasn't resolved, or failed), so there's nothing on
-// the server to delete yet. Any other id is a real schedule uuid, either
-// loaded from the server or reconciled in after a previous successful save.
+// createDraftSchedule call hasn't resolved, or failed), so there's nothing
+// on the server to delete yet, and a further edit before that still routes
+// to createDraftSchedule, not update. Any other id is a real schedule uuid,
+// either loaded from the server or reconciled in after a previous
+// successful save.
 function isClientOnlyEntryId(id: string): boolean {
   return id.startsWith('entry-');
 }
@@ -326,20 +345,20 @@ export function BulkScheduleScreen() {
             saveStatus: existingBulkSchedule.status === BulkScheduleStatus.PUBLISHED ? 'published' : 'draft',
             dailyCosts,
             bulkScheduleUuid: existingBulkSchedule.uuid,
+            ruleViolations: [],
+            violationsLoading: false,
+            violationsCollapsed: false,
           },
         ]);
         isSeedingRef.current = false;
+        fetchViolations(0, existingBulkSchedule.uuid);
       });
     } else if (workWeeks.length > 0) {
-      // The auto-selected first week is still a "week being used to create
-      // a bulk schedule" — check the backend the same way an explicit
-      // change-week selection does, so reopening this screen on a week
-      // that already has a draft/published roster loads it instead of
-      // silently starting a blank one over it.
       isSeedingRef.current = true;
       fetchWeekEntry(workWeeks[0]).then((entry) => {
         setWeeks([entry]);
         isSeedingRef.current = false;
+        if (entry.bulkScheduleUuid) fetchViolations(0, entry.bulkScheduleUuid);
       });
     }
   }, [isEditing, existingBulkSchedule, workWeeks, weeks.length]);
@@ -379,10 +398,11 @@ export function BulkScheduleScreen() {
     );
   };
 
-  // Both saveDraftSchedule and deleteDraftSchedule return the bulk
-  // schedule's current state — reconciling local entries from that response
-  // (rather than patching just the one entry that changed) is what lets
-  // newly-saved entries pick up their real server-assigned uuid.
+  // createDraftSchedule, updateDraftSchedule, and deleteDraftSchedule all
+  // return the bulk schedule's current state — reconciling local entries
+  // from that response (rather than patching just the one entry that
+  // changed) is what lets newly-saved entries pick up their real
+  // server-assigned uuid.
   const applyBulkScheduleResult = (weekIndex: number, weekStart: Date, bulkSchedule: BulkSchedule) => {
     setWeeks((prev) =>
       prev.map((card, index) =>
@@ -395,6 +415,39 @@ export function BulkScheduleScreen() {
           }
           : card,
       ),
+    );
+    queryClient.invalidateQueries({ queryKey: ['bulk-schedules'] });
+    queryClient.invalidateQueries({ queryKey: ['schedules'] });
+    // Re-checks rule violations after every add/update/delete — the only
+    // other trigger is the violations section's own manual reload icon.
+    fetchViolations(weekIndex, bulkSchedule.uuid);
+  };
+
+  const fetchViolations = (weekIndex: number, bulkScheduleUuid: string) => {
+    setWeeks((prev) => prev.map((card, index) => (index === weekIndex ? { ...card, violationsLoading: true } : card)));
+    scheduleApi
+      .getViolatedRules(bulkScheduleUuid)
+      .then((violations) => {
+        setWeeks((prev) =>
+          prev.map((card, index) => (index === weekIndex ? {
+            ...card,
+            ruleViolations: violations.results,
+            violationsLoading: false
+          } : card)),
+        );
+      })
+      .catch((error) => {
+        setWeeks((prev) => prev.map((card, index) => (index === weekIndex ? { ...card, violationsLoading: false } : card)));
+        setErrorModal({
+          title: 'Could not load rule violations',
+          lines: errorLines(error, 'Something went wrong. Please try again.'),
+        });
+      });
+  };
+
+  const toggleViolationsCollapsed = (weekIndex: number) => {
+    setWeeks((prev) =>
+      prev.map((card, index) => (index === weekIndex ? { ...card, violationsCollapsed: !card.violationsCollapsed } : card)),
     );
   };
 
@@ -427,10 +480,17 @@ export function BulkScheduleScreen() {
     }
 
     // Each added/edited shift is saved on its own right away — there's no
-    // separate "Save Draft" step anymore.
+    // separate "Save Draft" step anymore. A changed entry still carrying its
+    // client-generated id (see isClientOnlyEntryId) was never saved, so it's
+    // a brand new shift (createDraftSchedule); any other id is a real
+    // schedule uuid being edited (updateDraftSchedule).
     for (const entry of changedEntries(previousEntries, nextEntries)) {
-      scheduleApi
-        .saveDraftSchedule(buildSchedulePayload(entry, weekStart), week.week_number)
+      const payload = buildSchedulePayload(entry, weekStart);
+      const request =
+        isClientOnlyEntryId(entry.id) || !bulkScheduleUuid
+          ? scheduleApi.createDraftSchedule(payload, week.week_number)
+          : scheduleApi.updateDraftSchedule(payload, bulkScheduleUuid, entry.id);
+      request
         .then((bulkSchedule) => applyBulkScheduleResult(weekIndex, weekStart, bulkSchedule))
         .catch((error) => {
           setErrorModal({ title: 'Could not save shift', lines: errorLines(error, 'Something went wrong. Please try again.') });
@@ -466,6 +526,7 @@ export function BulkScheduleScreen() {
     const entry = await fetchWeekEntry(newWeek);
     setWeeks((prev) => prev.map((week, index) => (index === weekIndex ? entry : week)));
     setIsResolvingWeek(false);
+    if (entry.bulkScheduleUuid) fetchViolations(weekIndex, entry.bulkScheduleUuid);
   };
 
   const handleAddWeek = async () => {
@@ -478,6 +539,7 @@ export function BulkScheduleScreen() {
     setWeeks((prev) => [...prev, entry]);
     setActiveWeekIndex(newIndex);
     setIsResolvingWeek(false);
+    if (entry.bulkScheduleUuid) fetchViolations(newIndex, entry.bulkScheduleUuid);
   };
 
   // Publishing now only needs the bulk schedule's own uuid — each shift was
@@ -554,7 +616,81 @@ export function BulkScheduleScreen() {
                     }
                     onSelectWeek={isEditing ? undefined : (newWeek) => changeCardWeek(index, newWeek)}
                     dailyCosts={week.dailyCosts}
+                    onEditorOpen={() => week.bulkScheduleUuid && fetchViolations(index, week.bulkScheduleUuid)}
                   />
+
+                  <View style={styles.violationsCard}>
+                    <View style={styles.violationsHeader}>
+                      <Pressable style={styles.violationsHeaderLeft} onPress={() => toggleViolationsCollapsed(index)}>
+                        <MaterialIcons
+                          name={week.violationsCollapsed ? 'expand-more' : 'expand-less'}
+                          size={20}
+                          color={Colors.onSurface}
+                        />
+                        <Text style={styles.violationsTitle}>Rule Violations</Text>
+                        {(() => {
+                          const count = (week.ruleViolations ?? []).reduce((sum, e) => sum + e.violations.length, 0);
+                          return count > 0 ? (
+                            <View style={styles.violationsBadge}>
+                              <Text style={styles.violationsBadgeText}>{count}</Text>
+                            </View>
+                          ) : null;
+                        })()}
+                      </Pressable>
+                      <Pressable
+                        hitSlop={8}
+                        disabled={!week.bulkScheduleUuid || week.violationsLoading}
+                        onPress={() => week.bulkScheduleUuid && fetchViolations(index, week.bulkScheduleUuid)}
+                      >
+                        {week.violationsLoading ? (
+                          <ActivityIndicator size="small" color={Colors.primary} />
+                        ) : (
+                          <MaterialIcons
+                            name="refresh"
+                            size={20}
+                            color={week.bulkScheduleUuid ? Colors.primary : Colors.outline}
+                          />
+                        )}
+                      </Pressable>
+                    </View>
+
+                    {!week.violationsCollapsed ? (
+                      <View style={styles.violationsBody}>
+                        {week.ruleViolations === null ? (
+                          <Text style={styles.violationsEmptyText}>
+                            {week.bulkScheduleUuid
+                              ? 'Tap the refresh icon to check for rule violations.'
+                              : 'Save a shift first to check for rule violations.'}
+                          </Text>
+                        ) : week.ruleViolations.length === 0 ? (
+                          <Text style={styles.violationsEmptyText}>No rule violations.</Text>
+                        ) : (
+                          week.ruleViolations.map((employeeViolations) => (
+                            <View key={employeeViolations.employee.uuid} style={styles.violationsEmployeeGroup}>
+                              <Text style={styles.violationsEmployeeName}>
+                                {employeeViolations.employee.first_name} {employeeViolations.employee.last_name}
+                              </Text>
+                              {employeeViolations.violations.map((violation) => (
+                                <View key={violation.code} style={styles.violationRow}>
+                                  <View
+                                    style={[
+                                      styles.violationDot,
+                                      violation.severity === 'blocking' ? styles.violationDotBlocking : styles.violationDotWarning,
+                                    ]}
+                                  />
+                                  <View style={styles.violationTextGroup}>
+                                    <Text style={styles.violationLabel}>{violation.label}</Text>
+                                    <Text style={styles.violationMessage}>{violation.message}</Text>
+                                  </View>
+                                </View>
+                              ))}
+                            </View>
+                          ))
+                        )}
+                      </View>
+                    ) : null}
+                  </View>
+
                   {isResolvingWeek ? (
                     <View style={styles.weekLoadingOverlay}>
                       <ActivityIndicator color={Colors.primary} />
@@ -707,6 +843,85 @@ const styles = StyleSheet.create({
   },
   activeWeekWrapper: {
     position: 'relative',
+    gap: Spacing.gutter,
+  },
+  violationsCard: {
+    backgroundColor: Colors.surfaceContainerLowest,
+    borderWidth: 1,
+    borderColor: Colors.outlineVariant,
+    borderRadius: Radius.lg,
+    padding: Spacing.cardPadding,
+    gap: Spacing.gutter,
+  },
+  violationsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  violationsHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.unit * 2,
+    flex: 1,
+  },
+  violationsTitle: {
+    ...Typography.titleMd,
+    color: Colors.onSurface,
+  },
+  violationsBadge: {
+    backgroundColor: Colors.errorContainer,
+    borderRadius: Radius.full,
+    paddingHorizontal: Spacing.unit * 2,
+    paddingVertical: 2,
+  },
+  violationsBadgeText: {
+    ...Typography.labelSm,
+    fontFamily: 'Inter_600SemiBold',
+    color: Colors.onErrorContainer,
+  },
+  violationsBody: {
+    gap: Spacing.unit * 4,
+  },
+  violationsEmptyText: {
+    ...Typography.bodyMd,
+    color: Colors.onSurfaceVariant,
+  },
+  violationsEmployeeGroup: {
+    gap: Spacing.unit * 2,
+  },
+  violationsEmployeeName: {
+    ...Typography.bodyMd,
+    fontFamily: 'Inter_600SemiBold',
+    color: Colors.onSurface,
+  },
+  violationRow: {
+    flexDirection: 'row',
+    gap: Spacing.unit * 2,
+    paddingLeft: Spacing.unit * 2,
+  },
+  violationDot: {
+    width: 8,
+    height: 8,
+    borderRadius: Radius.full,
+    marginTop: 6,
+  },
+  violationDotBlocking: {
+    backgroundColor: Colors.error,
+  },
+  violationDotWarning: {
+    backgroundColor: Colors.tertiary,
+  },
+  violationTextGroup: {
+    flex: 1,
+    gap: 2,
+  },
+  violationLabel: {
+    ...Typography.bodyMd,
+    color: Colors.onSurface,
+  },
+  violationMessage: {
+    ...Typography.labelSm,
+    color: Colors.onSurfaceVariant,
   },
   weekLoadingOverlay: {
     position: 'absolute',
