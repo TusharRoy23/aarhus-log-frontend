@@ -8,6 +8,7 @@ import { OrganizationSettingsTabs, type OrganizationSettingsTabKey } from './Org
 import { GeneralSettingsTab } from './GeneralSettingsTab';
 import { WagesTab } from './WagesTab';
 import { RulesTab } from './RulesTab';
+import { AbsenceConfigTab } from './AbsenceConfigTab';
 
 const TAB_CONTENT: Record<OrganizationSettingsTabKey, { title: string, subtitle: string; Component: () => React.JSX.Element | null }> = {
   general: {
@@ -24,6 +25,11 @@ const TAB_CONTENT: Record<OrganizationSettingsTabKey, { title: string, subtitle:
     title: "Rules",
     subtitle: 'Set up and enable the rules your organization enforces.',
     Component: RulesTab,
+  },
+  'absence-config': {
+    title: "Absence Config",
+    subtitle: 'Manage the absence types employees can request.',
+    Component: AbsenceConfigTab,
   },
 };
 

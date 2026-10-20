@@ -97,10 +97,21 @@ export type ExemptRulesPayload = {
     section_uuid: string;
     exempt: boolean;
 }
+export type AbsenceTypePayload = {
+    label?: string;
+    is_active: boolean;
+}
+export type AbsenceType = {
+    uuid: string;
+    label: string;
+    is_active: boolean;
+    is_system: boolean;
+}
 
 const ORGANIZATION_PATH = '/organization/me/';
 const RULES_PATH = '/organization/rule-sections/';
 const EMP_RULES_PATH = '/organization/employees/';
+const ABSENCE_TYPES_PATH = '/organization/absence-types/';
 
 export const organizationApi = {
     get: async (): Promise<Organization> => {
@@ -129,6 +140,22 @@ export const organizationApi = {
     },
     exemptRulesForEmployee: async (employeeUuid: string, payload: ExemptRulesPayload): Promise<{ message: string }> => {
         const response = await baseApi.put<{ message: string }>(apiPath(`${EMP_RULES_PATH}${employeeUuid}/exempt-rules/`), payload);
+        return response.data;
+    },
+    createAbsenceType: async (payload: AbsenceTypePayload): Promise<PaginatedResponse<AbsenceType>> => {
+        const response = await baseApi.post<PaginatedResponse<AbsenceType>>(apiPath(`${ABSENCE_TYPES_PATH}`), payload);
+        return response.data;
+    },
+    getAbsenceTypes: async (): Promise<PaginatedResponse<AbsenceType>> => {
+        const response = await baseApi.get<PaginatedResponse<AbsenceType>>(apiPath(`${ABSENCE_TYPES_PATH}`));
+        return response.data;
+    },
+    updateAbsenceType: async (uuid: string, payload: AbsenceTypePayload): Promise<AbsenceType> => {
+        const response = await baseApi.put<AbsenceType>(apiPath(`${ABSENCE_TYPES_PATH}${uuid}/`), payload);
+        return response.data;
+    },
+    deleteAbsenceType: async (uuid: string): Promise<{ message: string }> => {
+        const response = await baseApi.delete<{ message: string }>(apiPath(`${ABSENCE_TYPES_PATH}${uuid}/`));
         return response.data;
     }
 };
