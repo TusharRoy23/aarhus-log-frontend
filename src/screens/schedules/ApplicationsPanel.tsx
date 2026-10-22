@@ -1,20 +1,32 @@
+import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { SegmentedControl } from '../../components/ui';
 import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
-import { Radius } from '../../theme/radius';
+import { AbsenceApplicationsTab } from './AbsenceApplicationsTab';
+import { OvertimeRequestsTab } from './OvertimeRequestsTab';
 
-// The "Applications" tab's content — no backing endpoint yet, so this is
-// just an empty-state placeholder. Kept as its own file (not a shared
-// "ComingSoonPanel") so it's ready to grow a real query/content later
-// without disturbing the other tabs.
+type ApplicationKind = 'absence' | 'overtime';
+
+const APPLICATION_PANELS: { value: ApplicationKind; label: string; Component: () => React.JSX.Element | null }[] = [
+  { value: 'absence', label: 'Absence', Component: AbsenceApplicationsTab },
+  { value: 'overtime', label: 'Overtime Request', Component: OvertimeRequestsTab },
+];
+
 export function ApplicationsPanel() {
+  const [activeKind, setActiveKind] = useState<ApplicationKind>('absence');
+  const { Component } = APPLICATION_PANELS.find((panel) => panel.value === activeKind) ?? APPLICATION_PANELS[0];
+
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>Applications</Text>
-      <View style={styles.emptyCard}>
-        <Text style={styles.emptyText}>Applications are coming soon.</Text>
-      </View>
+      <SegmentedControl
+        options={APPLICATION_PANELS.map(({ value, label }) => ({ value, label }))}
+        value={activeKind}
+        onChange={setActiveKind}
+      />
+      <Component />
     </View>
   );
 }
@@ -28,16 +40,5 @@ const styles = StyleSheet.create({
     fontSize: 22,
     lineHeight: 28,
     color: Colors.onSurface,
-  },
-  emptyCard: {
-    backgroundColor: Colors.surfaceContainerLowest,
-    borderWidth: 1,
-    borderColor: Colors.outlineVariant,
-    borderRadius: Radius.lg,
-    padding: Spacing.cardPadding,
-  },
-  emptyText: {
-    ...Typography.bodyMd,
-    color: Colors.onSurfaceVariant,
   },
 });
