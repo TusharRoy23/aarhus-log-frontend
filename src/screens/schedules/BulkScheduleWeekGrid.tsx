@@ -74,7 +74,7 @@ export function toDateOnlyString(date: Date): string {
 // yet, so showing one would mean guessing at it. Two decimal places is the
 // only formatting applied.
 function formatCost(amount: number): string {
-  return amount.toFixed(2);
+  return amount.toPrecision();
 }
 
 function timeToMinutes(time: string): number {
@@ -347,9 +347,9 @@ export function BulkScheduleWeekGrid({
                     <Text style={styles.dayHeaderLabel}>{DAY_LABELS[day.index]}</Text>
                     <View style={styles.dayHeaderMetaRow}>
                       <Text style={styles.dayHeaderDate}>{formatDayDate(day.date)}</Text>
-                      {dayCost !== undefined ? (
+                      {dayCost !== undefined && dayCost > 0 ? (
                         <View style={styles.dayCostRow}>
-                          <MaterialIcons name="payments" size={12} color={Colors.onSurfaceVariant} />
+                          <MaterialIcons name="money" size={12} color={Colors.onSurfaceVariant} />
                           <Text style={styles.dayCostText}>{formatCost(+dayCost)}</Text>
                         </View>
                       ) : null}

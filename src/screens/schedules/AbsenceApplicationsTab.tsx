@@ -11,6 +11,7 @@ import { ApplicationStatusColors } from '../../theme/status';
 import { organizationApi } from '../../lib/api/organization';
 import {
   employeeApi,
+  ApplicationStatus,
   type CreateAbsenceApplicationPayload,
   type IndividualAbsenceApplication,
 } from '../../lib/api/employee';
@@ -50,7 +51,7 @@ function fromIsoDateTime(iso: string): string {
 // fact isn't offered (same "only upcoming/undecided is mutable" rule the
 // wage-config tabs already apply to their own effective-date gating).
 function isEditable(application: IndividualAbsenceApplication): boolean {
-  return application.status === 'pending';
+  return application.status === ApplicationStatus.Pending;
 }
 
 // ISO datetime -> '15 Aug 2026, 09:30' (local time) — a small local

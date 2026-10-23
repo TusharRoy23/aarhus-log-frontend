@@ -1,5 +1,6 @@
 import { PaginatedResponse } from '../../constants/types';
 import baseApi from './base_api';
+import { ApplicationStatus, Employee, IndividualAbsenceApplication } from './employee';
 import { apiPath } from './utils';
 
 // The full organization-settings record — distinct from `auth.ts`'s own
@@ -107,11 +108,21 @@ export type AbsenceType = {
     is_active: boolean;
     is_system: boolean;
 }
+export interface AbsenceApplication extends IndividualAbsenceApplication {
+    employee: Employee;
+    reviewed_by: Employee;
+    reviewed_at: string;
+}
+
+export type AbsenceApplicationResponse = {
+    status: ApplicationStatus;
+};
 
 const ORGANIZATION_PATH = '/organization/me/';
 const RULES_PATH = '/organization/rule-sections/';
 const EMP_RULES_PATH = '/organization/employees/';
 const ABSENCE_TYPES_PATH = '/organization/absence-types/';
+const ABSENCE_APPLICATIONS_PATH = '/organization/absence-applications/';
 
 export const organizationApi = {
     get: async (): Promise<Organization> => {
@@ -157,5 +168,13 @@ export const organizationApi = {
     deleteAbsenceType: async (uuid: string): Promise<{ message: string }> => {
         const response = await baseApi.delete<{ message: string }>(apiPath(`${ABSENCE_TYPES_PATH}${uuid}/`));
         return response.data;
-    }
+    },
+    getAbsenceApplications: async (): Promise<PaginatedResponse<AbsenceApplication>> => {
+        const response = await baseApi.get<PaginatedResponse<AbsenceApplication>>(apiPath(`${ABSENCE_APPLICATIONS_PATH}`));
+        return response.data;
+    },
+    reviewAbsenceApplication: async (uuid: string, payload: AbsenceApplicationResponse): Promise<AbsenceApplicationResponse> => {
+        const response = await baseApi.put<AbsenceApplicationResponse>(apiPath(`${ABSENCE_APPLICATIONS_PATH}${uuid}/respond/`), payload);
+        return response.data;
+    },
 };

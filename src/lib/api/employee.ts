@@ -47,7 +47,11 @@ export type CreateWagePayload = {
     effective_date: string;
 };
 
-export type ApplicationStatus = 'pending' | 'approved' | 'declined';
+export enum ApplicationStatus {
+    Pending = 'pending',
+    Approved = 'approved',
+    Declined = 'declined',
+}
 
 export type IndividualAbsenceApplication = {
     uuid: string;
