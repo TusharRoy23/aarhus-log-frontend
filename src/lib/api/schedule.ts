@@ -198,6 +198,27 @@ export const ScheduleTypes = {
 
 export type ScheduleType = (typeof ScheduleTypes)[keyof typeof ScheduleTypes];
 
+export type RuleViolationSeverity = "warning" | "blocking";
+
+export interface RuleViolation {
+    code: string;
+    label: string;
+    message: string;
+    severity: RuleViolationSeverity;
+}
+
+export interface RuleViolationEmployee {
+    uuid: string;
+    first_name: string;
+    last_name: string;
+    employee_code: string;
+}
+
+export interface EmployeeRuleViolations {
+    employee: RuleViolationEmployee;
+    violations: RuleViolation[];
+}
+
 const SCHEDULES_PATH = '/employee/schedules/';
 const BULK_SCHEDULES_PATH = '/employee/bulk-schedules/';
 
@@ -259,10 +280,10 @@ export const scheduleApi = {
         const response = await baseApi.get<WorkWeekListResponse>(apiPath(`/employee/work-weeks/`));
         return response.data;
     },
-    updateWeeklyShifts: async (payload: CreateBulkSchedulePayload, week_number: number): Promise<BulkSchedule> => {
-        const response = await baseApi.put(apiPath(`${BULK_SCHEDULES_PATH}${week_number}/`), payload);
-        return response.data;
-    },
+    // updateWeeklyShifts: async (payload: CreateBulkSchedulePayload, week_number: number): Promise<BulkSchedule> => {
+    //     const response = await baseApi.put(apiPath(`${BULK_SCHEDULES_PATH}${week_number}/`), payload);
+    //     return response.data;
+    // },
     getBulkSchedule: async (week_number: number): Promise<BulkSchedule> => {
         const response = await baseApi.get(apiPath(`${BULK_SCHEDULES_PATH}${week_number}/`));
         return response.data;
@@ -277,6 +298,26 @@ export const scheduleApi = {
     },
     getWeeklyCosts: async (week_number: number): Promise<WeeklyCost> => {
         const response = await baseApi.get<WeeklyCost>(apiPath(`/employee/weekly-costs/${week_number}/`));
+        return response.data;
+    },
+    createDraftSchedule: async (payload: CreateSchedulePayload, week_number: number): Promise<BulkSchedule> => {
+        const response = await baseApi.post<BulkSchedule>(apiPath(`${BULK_SCHEDULES_PATH}${week_number}/draft/`), payload);
+        return response.data;
+    },
+    updateDraftSchedule: async (payload: CreateSchedulePayload, bulkScheduleUuid: string, scheduleUuid: string): Promise<BulkSchedule> => {
+        const response = await baseApi.put<BulkSchedule>(apiPath(`${BULK_SCHEDULES_PATH}${bulkScheduleUuid}/schedules/${scheduleUuid}/`), payload);
+        return response.data;
+    },
+    deleteDraftSchedule: async (bulkScheduleUuid: string, scheduleUuid: string): Promise<BulkSchedule> => {
+        const response = await baseApi.delete<BulkSchedule>(apiPath(`${BULK_SCHEDULES_PATH}${bulkScheduleUuid}/schedules/${scheduleUuid}/`));
+        return response.data;
+    },
+    publishDraftSchedule: async (bulkScheduleUuid: string): Promise<BulkSchedule> => {
+        const response = await baseApi.post<BulkSchedule>(apiPath(`${BULK_SCHEDULES_PATH}${bulkScheduleUuid}/publish/`));
+        return response.data;
+    },
+    getViolatedRules: async (scheduleUuid: string): Promise<PaginatedResponse<EmployeeRuleViolations>> => {
+        const response = await baseApi.get<PaginatedResponse<EmployeeRuleViolations>>(apiPath(`${BULK_SCHEDULES_PATH}${scheduleUuid}/rule-violations/`));
         return response.data;
     }
 };

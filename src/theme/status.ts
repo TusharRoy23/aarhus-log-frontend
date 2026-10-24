@@ -23,3 +23,15 @@ export const EmployeeStatusColors: Record<EmployeeStatus, { background: string; 
   active: { background: '#ecfdf5', text: '#047857', strip: '#10b981' },
   inactive: { background: '#fef2f2', text: '#b91c1c', strip: '#f59e0b' },
 };
+
+// Absence/overtime application review status — same pending/approved/
+// declined traffic-light scheme as ShiftStatus's own pending/confirmed/
+// declined above, just under the application-specific names the backend
+// actually returns.
+export type ApplicationReviewStatus = 'pending' | 'approved' | 'declined';
+
+export const ApplicationStatusColors: Record<ApplicationReviewStatus, { background: string; text: string; strip: string }> = {
+  pending: { background: '#fffbeb', text: '#b45309', strip: '#f59e0b' },
+  approved: { background: '#ecfdf5', text: '#047857', strip: '#10b981' },
+  declined: { background: '#fef2f2', text: '#b91c1c', strip: '#f59e0b' },
+};

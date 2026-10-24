@@ -20,6 +20,7 @@ export const Resources = {
     ORGANIZATION: 'organization',
     SCHEDULE: 'schedule',
     WORKLOCATION: 'worklocation',
+    APPLICATION: 'application',
 } as const;
 
 export type Resource = (typeof Resources)[keyof typeof Resources];

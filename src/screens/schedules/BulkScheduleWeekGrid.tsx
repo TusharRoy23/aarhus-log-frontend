@@ -74,7 +74,7 @@ export function toDateOnlyString(date: Date): string {
 // yet, so showing one would mean guessing at it. Two decimal places is the
 // only formatting applied.
 function formatCost(amount: number): string {
-  return amount.toFixed(2);
+  return amount.toPrecision();
 }
 
 function timeToMinutes(time: string): number {
@@ -137,6 +137,10 @@ export interface BulkScheduleWeekGridProps {
    * an employee's read-only "Published Schedule" detail) rather than
    * building or editing one. `onEntriesChange` is never invoked in this mode. */
   readOnly?: boolean;
+  /** Fired whenever the add/edit shift sheet opens (never in readOnly mode)
+   * — lets the parent refresh anything that should be current before the
+   * admin starts editing, e.g. re-checking rule violations. */
+  onEditorOpen?: () => void;
 }
 
 type EditorTarget = { mode: 'add'; dayIndex: number } | { mode: 'edit'; entry: BulkShiftEntry };
@@ -157,6 +161,7 @@ export function BulkScheduleWeekGrid({
   onSelectWeek,
   readOnly = false,
   dailyCosts,
+  onEditorOpen,
 }: BulkScheduleWeekGridProps) {
   const days = useMemo(() => getWeekDays(week), [week]);
   const employeeByUuid = useMemo(() => new Map(employees.map((employee) => [employee.uuid, employee])), [employees]);
@@ -195,6 +200,7 @@ export function BulkScheduleWeekGrid({
     setDraftIsScannable(true);
     setEntryError(undefined);
     setEditorTarget({ mode: 'add', dayIndex });
+    onEditorOpen?.();
   };
   const openEditEditor = (entry: BulkShiftEntry) => {
     setDraftEmployeeUuid(entry.employeeUuid);
@@ -205,6 +211,7 @@ export function BulkScheduleWeekGrid({
     setDraftIsScannable(entry.isScannable);
     setEntryError(undefined);
     setEditorTarget({ mode: 'edit', entry });
+    onEditorOpen?.();
   };
   const closeEditor = () => setEditorTarget(null);
 
@@ -340,9 +347,9 @@ export function BulkScheduleWeekGrid({
                     <Text style={styles.dayHeaderLabel}>{DAY_LABELS[day.index]}</Text>
                     <View style={styles.dayHeaderMetaRow}>
                       <Text style={styles.dayHeaderDate}>{formatDayDate(day.date)}</Text>
-                      {dayCost !== undefined ? (
+                      {dayCost !== undefined && dayCost > 0 ? (
                         <View style={styles.dayCostRow}>
-                          <MaterialIcons name="payments" size={12} color={Colors.onSurfaceVariant} />
+                          <MaterialIcons name="money" size={12} color={Colors.onSurfaceVariant} />
                           <Text style={styles.dayCostText}>{formatCost(+dayCost)}</Text>
                         </View>
                       ) : null}

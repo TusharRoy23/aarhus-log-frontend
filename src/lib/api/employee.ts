@@ -1,6 +1,8 @@
+import { create } from 'axios';
 import { PaginatedResponse } from '../../constants/types';
 import baseApi from './base_api';
 import { Designation } from './designation';
+import { AbsenceType } from './organization';
 import { apiPath } from './utils';
 
 export type Employee = {
@@ -45,7 +47,32 @@ export type CreateWagePayload = {
     effective_date: string;
 };
 
+export enum ApplicationStatus {
+    Pending = 'pending',
+    Approved = 'approved',
+    Declined = 'declined',
+}
+
+export type IndividualAbsenceApplication = {
+    uuid: string;
+    absence_type: AbsenceType;
+    start_time: string;
+    end_time: string;
+    note: string | null;
+    status: ApplicationStatus;
+    created_at: string;
+    updated_at: string;
+}
+
+export type CreateAbsenceApplicationPayload = {
+    absence_type_uuid: string;
+    start_time: string;
+    end_time: string;
+    note?: string;
+}
+
 const EMPLOYEES_PATH = '/employee/';
+const ABSENCE_PATH = 'employee/absence-applications/';
 
 export const employeeApi = {
     list: async (): Promise<PaginatedResponse<Employee>> => {
@@ -71,5 +98,20 @@ export const employeeApi = {
     createWage: async (uuid: string, payload: CreateWagePayload): Promise<Wage> => {
         const response = await baseApi.post<Wage>(apiPath(`${EMPLOYEES_PATH}${uuid}/wages/`), payload);
         return response.data;
+    },
+    getIndividualAbsenceApplications: async (): Promise<PaginatedResponse<IndividualAbsenceApplication>> => {
+        const response = await baseApi.get<PaginatedResponse<IndividualAbsenceApplication>>(apiPath(`${ABSENCE_PATH}`));
+        return response.data;
+    },
+    applyForAbsenceApplication: async (payload: CreateAbsenceApplicationPayload): Promise<PaginatedResponse<IndividualAbsenceApplication>> => {
+        const response = await baseApi.post<PaginatedResponse<IndividualAbsenceApplication>>(apiPath(`${ABSENCE_PATH}`), payload);
+        return response.data;
+    },
+    updateAbsenceApplication: async (uuid: string, payload: CreateAbsenceApplicationPayload): Promise<IndividualAbsenceApplication> => {
+        const response = await baseApi.put<IndividualAbsenceApplication>(apiPath(`${ABSENCE_PATH}${uuid}/`), payload);
+        return response.data;
+    },
+    deleteAbsenceApplication: async (uuid: string): Promise<void> => {
+        await baseApi.delete(apiPath(`${ABSENCE_PATH}${uuid}/`));
     },
 };

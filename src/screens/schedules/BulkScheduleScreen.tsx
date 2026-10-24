@@ -13,8 +13,9 @@ import { employeeApi } from '../../lib/api/employee';
 import {
   BulkScheduleStatus,
   scheduleApi,
-  type BulkScheduleItem,
-  type CreateBulkSchedulePayload,
+  type BulkSchedule,
+  type CreateSchedulePayload,
+  type EmployeeRuleViolations,
   type Schedule,
   type DailyCost,
   type ShiftPlanPayload,
@@ -35,6 +36,14 @@ interface WeekEntry {
   entries: BulkShiftEntry[];
   saveStatus: 'unsaved' | 'draft' | 'published';
   dailyCosts: DailyCost[];
+  /** The underlying BulkSchedule's own uuid, needed to publish — null until
+   * the first shift has actually been saved as a draft. */
+  bulkScheduleUuid: string | null;
+  /** null = never fetched yet; [] = fetched, no violations. */
+  ruleViolations: EmployeeRuleViolations[];
+  violationsLoading: boolean;
+  /** Non-collapsed by default. */
+  violationsCollapsed: boolean;
 }
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -103,11 +112,11 @@ function addableWorkWeeks(workWeeks: WorkWeek[], usedWeeks: WorkWeek[]): WorkWee
 // Converts an existing bulk schedule's flat Schedule[] back into the entry
 // list the grid edits. Employees no longer active won't appear in the
 // employee picker, but their existing entries still render (looked up by
-// uuid, falling back to "Unknown employee" if not found) — the shift is only
-// silently dropped from the payload on next save (see buildBulkScheduleItems),
-// same "auto-populate active employees only" boundary already accepted for
-// create, not a new gap introduced by editing. Exported for reuse by
-// BulkScheduleViewScreen's own (read-only) entry population.
+// uuid, falling back to "Unknown employee" if not found) — resaving one of
+// those as-is (without changing its employee) still sends that now-inactive
+// employee's uuid, since saving is now per-shift with no whole-week active-
+// employee filter. Exported for reuse by BulkScheduleViewScreen's own
+// (read-only) entry population.
 export function buildEntriesFromSchedules(schedules: Schedule[], weekStart: Date): BulkShiftEntry[] {
   if (!schedules || schedules.length === 0) return [];
   const entries: BulkShiftEntry[] = [];
@@ -160,7 +169,8 @@ function shiftPlanForGroup(group: { start: string; end: string; entries: BulkShi
 
 async function fetchWeeklyCosts(weekNumber: number): Promise<DailyCost[]> {
   try {
-    return (await scheduleApi.getWeeklyCosts(weekNumber)).days;
+    const response = await scheduleApi.getWeeklyCosts(weekNumber);
+    return response.days;
   } catch {
     return [];
   }
@@ -181,42 +191,75 @@ async function fetchWeekEntry(week: WorkWeek): Promise<WeekEntry> {
       entries: buildEntriesFromSchedules(existing.schedules, parseDateOnly(week.start_date)),
       saveStatus: existing.status === BulkScheduleStatus.PUBLISHED ? 'published' : 'draft',
       dailyCosts: await fetchWeeklyCosts(week.week_number),
+      bulkScheduleUuid: existing.uuid,
+      ruleViolations: [],
+      violationsLoading: false,
+      violationsCollapsed: false,
     };
   } catch {
-    // No bulk schedule exists yet for this week (404), or a transient fetch
-    // error — either way, start this week blank rather than blocking the
-    // flow. Re-picking the same week retries the lookup.
-    return { week, entries: [], saveStatus: 'unsaved', dailyCosts: [] };
+    return {
+      week,
+      entries: [],
+      saveStatus: 'unsaved',
+      dailyCosts: [],
+      bulkScheduleUuid: null,
+      ruleViolations: [],
+      violationsLoading: false,
+      violationsCollapsed: false,
+    };
   }
 }
 
-// Every entry in `week` becomes one bulk-schedule item — entries for an
-// employee no longer active are silently dropped (same "auto-populate active
-// employees only" boundary this screen has always had). Overnight shifts
-// (end time-of-day <= start time-of-day) roll the end onto the next calendar
-// day — same convention used for display elsewhere in this app, applied here
-// to the actual payload dates. Dates come from the week's own authoritative
+// One entry becomes one single-shift payload for createDraftSchedule/
+// updateDraftSchedule — each shift is now saved on its own as soon as the
+// admin saves it in the editor,
+// not batched into one whole-week request. Overnight shifts (end time-of-day
+// <= start time-of-day) roll the end onto the next calendar day — same
+// convention used for display elsewhere in this app, applied here to the
+// actual payload dates. Dates come from the week's own authoritative
 // `start_date` (parsed as local midnight, not handed straight to `new
 // Date()` — a bare date-only string parses as UTC otherwise).
-function buildBulkScheduleItems(week: WeekEntry, employees: BulkEmployeeRow[]): BulkScheduleItem[] {
-  const weekStart = parseDateOnly(week.week.start_date);
-  const activeEmployeeUuids = new Set(employees.map((employee) => employee.uuid));
-  const items: BulkScheduleItem[] = [];
-  for (const entry of week.entries) {
-    if (!activeEmployeeUuids.has(entry.employeeUuid)) continue;
-    const startDate = addDaysToDate(weekStart, entry.dayIndex);
-    const endDate =
-      timeToMinutes(entry.end) <= timeToMinutes(entry.start) ? addDaysToDate(startDate, 1) : startDate;
-    items.push({
-      employee_uuid: entry.employeeUuid,
-      start_time: combineDateAndTime(startDate, entry.start),
-      end_time: combineDateAndTime(endDate, entry.end),
-      break_time: entry.breakMinutes ? toBreakTimeString(entry.breakMinutes) : '',
-      is_scannable: entry.isScannable,
-      ...(entry.workLocationUuid ? { work_location_uuid: entry.workLocationUuid } : {}),
-    });
-  }
-  return items;
+function buildSchedulePayload(entry: BulkShiftEntry, weekStart: Date): CreateSchedulePayload {
+  const startDate = addDaysToDate(weekStart, entry.dayIndex);
+  const endDate = timeToMinutes(entry.end) <= timeToMinutes(entry.start) ? addDaysToDate(startDate, 1) : startDate;
+  return {
+    employee_uuid: entry.employeeUuid,
+    start_time: combineDateAndTime(startDate, entry.start),
+    end_time: combineDateAndTime(endDate, entry.end),
+    break_time: entry.breakMinutes ? toBreakTimeString(entry.breakMinutes) : '',
+    is_scannable: entry.isScannable,
+    ...(entry.workLocationUuid ? { work_location_uuid: entry.workLocationUuid } : {}),
+  };
+}
+
+// Exactly one entry is added or edited per shift-editor Save (the grid never
+// changes more than one at once) — this picks that entry out by diffing
+// against the previous entries by id. A pure removal yields nothing here,
+// since there's no bulk-schedule delete endpoint yet (see updateEntries).
+function changedEntries(before: BulkShiftEntry[], after: BulkShiftEntry[]): BulkShiftEntry[] {
+  const beforeById = new Map(before.map((entry) => [entry.id, entry]));
+  return after.filter((entry) => {
+    const previous = beforeById.get(entry.id);
+    return !previous || JSON.stringify(previous) !== JSON.stringify(entry);
+  });
+}
+
+// Entries present in `before` but gone from `after` — removed via the
+// grid's "Remove" button.
+function removedEntries(before: BulkShiftEntry[], after: BulkShiftEntry[]): BulkShiftEntry[] {
+  const afterIds = new Set(after.map((entry) => entry.id));
+  return before.filter((entry) => !afterIds.has(entry.id));
+}
+
+// createEntryId (BulkScheduleWeekGrid.tsx) prefixes every client-generated
+// id with 'entry-' — such an entry was never confirmed saved (its own
+// createDraftSchedule call hasn't resolved, or failed), so there's nothing
+// on the server to delete yet, and a further edit before that still routes
+// to createDraftSchedule, not update. Any other id is a real schedule uuid,
+// either loaded from the server or reconciled in after a previous
+// successful save.
+function isClientOnlyEntryId(id: string): boolean {
+  return id.startsWith('entry-');
 }
 
 function countScheduledEmployees(week: WeekEntry, employees: BulkEmployeeRow[]): number {
@@ -301,20 +344,21 @@ export function BulkScheduleScreen() {
             entries,
             saveStatus: existingBulkSchedule.status === BulkScheduleStatus.PUBLISHED ? 'published' : 'draft',
             dailyCosts,
+            bulkScheduleUuid: existingBulkSchedule.uuid,
+            ruleViolations: [],
+            violationsLoading: false,
+            violationsCollapsed: false,
           },
         ]);
         isSeedingRef.current = false;
+        fetchViolations(0, existingBulkSchedule.uuid);
       });
     } else if (workWeeks.length > 0) {
-      // The auto-selected first week is still a "week being used to create
-      // a bulk schedule" — check the backend the same way an explicit
-      // change-week selection does, so reopening this screen on a week
-      // that already has a draft/published roster loads it instead of
-      // silently starting a blank one over it.
       isSeedingRef.current = true;
       fetchWeekEntry(workWeeks[0]).then((entry) => {
         setWeeks([entry]);
         isSeedingRef.current = false;
+        if (entry.bulkScheduleUuid) fetchViolations(0, entry.bulkScheduleUuid);
       });
     }
   }, [isEditing, existingBulkSchedule, workWeeks, weeks.length]);
@@ -354,11 +398,64 @@ export function BulkScheduleScreen() {
     );
   };
 
+  // createDraftSchedule, updateDraftSchedule, and deleteDraftSchedule all
+  // return the bulk schedule's current state — reconciling local entries
+  // from that response (rather than patching just the one entry that
+  // changed) is what lets newly-saved entries pick up their real
+  // server-assigned uuid.
+  const applyBulkScheduleResult = (weekIndex: number, weekStart: Date, bulkSchedule: BulkSchedule) => {
+    setWeeks((prev) =>
+      prev.map((card, index) =>
+        index === weekIndex
+          ? {
+            ...card,
+            entries: buildEntriesFromSchedules(bulkSchedule.schedules, weekStart),
+            bulkScheduleUuid: bulkSchedule.uuid,
+            saveStatus: bulkSchedule.status === BulkScheduleStatus.PUBLISHED ? 'published' : 'draft',
+          }
+          : card,
+      ),
+    );
+    queryClient.invalidateQueries({ queryKey: ['bulk-schedules'] });
+    queryClient.invalidateQueries({ queryKey: ['schedules'] });
+    // Re-checks rule violations after every add/update/delete — the only
+    // other trigger is the violations section's own manual reload icon.
+    fetchViolations(weekIndex, bulkSchedule.uuid);
+  };
+
+  const fetchViolations = (weekIndex: number, bulkScheduleUuid: string) => {
+    setWeeks((prev) => prev.map((card, index) => (index === weekIndex ? { ...card, violationsLoading: true } : card)));
+    scheduleApi
+      .getViolatedRules(bulkScheduleUuid)
+      .then((violations) => {
+        setWeeks((prev) =>
+          prev.map((card, index) => (index === weekIndex ? {
+            ...card,
+            ruleViolations: violations.results,
+            violationsLoading: false
+          } : card)),
+        );
+      })
+      .catch((error) => {
+        setWeeks((prev) => prev.map((card, index) => (index === weekIndex ? { ...card, violationsLoading: false } : card)));
+        setErrorModal({
+          title: 'Could not load rule violations',
+          lines: errorLines(error, 'Something went wrong. Please try again.'),
+        });
+      });
+  };
+
+  const toggleViolationsCollapsed = (weekIndex: number) => {
+    setWeeks((prev) =>
+      prev.map((card, index) => (index === weekIndex ? { ...card, violationsCollapsed: !card.violationsCollapsed } : card)),
+    );
+  };
+
   // Every create/update prices each changed day from its own shifts via the
   // estimate endpoint — saved costs are only read back when a saved week is
   // opened.
   const updateEntries = (weekIndex: number, nextEntries: BulkShiftEntry[]) => {
-    const { week, entries: previousEntries } = weeks[weekIndex];
+    const { week, entries: previousEntries, bulkScheduleUuid } = weeks[weekIndex];
     setWeeks((prev) => prev.map((card, index) => (index === weekIndex ? { ...card, entries: nextEntries } : card)));
     const weekStart = parseDateOnly(week.start_date);
     for (const dayIndex of changedDayIndexes(previousEntries, nextEntries)) {
@@ -381,6 +478,39 @@ export function BulkScheduleScreen() {
           setDayCost(weekIndex, date, undefined);
         });
     }
+
+    // Each added/edited shift is saved on its own right away — there's no
+    // separate "Save Draft" step anymore. A changed entry still carrying its
+    // client-generated id (see isClientOnlyEntryId) was never saved, so it's
+    // a brand new shift (createDraftSchedule); any other id is a real
+    // schedule uuid being edited (updateDraftSchedule).
+    for (const entry of changedEntries(previousEntries, nextEntries)) {
+      const payload = buildSchedulePayload(entry, weekStart);
+      const request =
+        isClientOnlyEntryId(entry.id) || !bulkScheduleUuid
+          ? scheduleApi.createDraftSchedule(payload, week.week_number)
+          : scheduleApi.updateDraftSchedule(payload, bulkScheduleUuid, entry.id);
+      request
+        .then((bulkSchedule) => applyBulkScheduleResult(weekIndex, weekStart, bulkSchedule))
+        .catch((error) => {
+          setErrorModal({ title: 'Could not save shift', lines: errorLines(error, 'Something went wrong. Please try again.') });
+        });
+    }
+
+    // A removed entry that was never actually saved (still carrying its
+    // client-generated id — see createEntryId in BulkScheduleWeekGrid) has
+    // nothing on the server to delete, so it's dropped locally with no API
+    // call. An already-saved entry (a real schedule uuid) calls
+    // deleteDraftSchedule to remove it from the bulk schedule for real.
+    for (const entry of removedEntries(previousEntries, nextEntries)) {
+      if (isClientOnlyEntryId(entry.id) || !bulkScheduleUuid) continue;
+      scheduleApi
+        .deleteDraftSchedule(bulkScheduleUuid, entry.id)
+        .then((bulkSchedule) => applyBulkScheduleResult(weekIndex, weekStart, bulkSchedule))
+        .catch((error) => {
+          setErrorModal({ title: 'Could not remove shift', lines: errorLines(error, 'Something went wrong. Please try again.') });
+        });
+    }
   };
 
   const [isResolvingWeek, setIsResolvingWeek] = useState(false);
@@ -396,6 +526,7 @@ export function BulkScheduleScreen() {
     const entry = await fetchWeekEntry(newWeek);
     setWeeks((prev) => prev.map((week, index) => (index === weekIndex ? entry : week)));
     setIsResolvingWeek(false);
+    if (entry.bulkScheduleUuid) fetchViolations(weekIndex, entry.bulkScheduleUuid);
   };
 
   const handleAddWeek = async () => {
@@ -408,55 +539,42 @@ export function BulkScheduleScreen() {
     setWeeks((prev) => [...prev, entry]);
     setActiveWeekIndex(newIndex);
     setIsResolvingWeek(false);
+    if (entry.bulkScheduleUuid) fetchViolations(newIndex, entry.bulkScheduleUuid);
   };
 
-  const bulkSaveMutation = useMutation({
-    mutationFn: (payload: CreateBulkSchedulePayload) =>
-      isEditing && weekNumberParam
-        ? scheduleApi.updateWeeklyShifts(payload, Number(weekNumberParam))
-        : scheduleApi.bulkCreate(payload),
+  // Publishing now only needs the bulk schedule's own uuid — each shift was
+  // already saved as a draft individually as it was added/edited, so there's
+  // no payload left to build here.
+  const publishMutation = useMutation({
+    mutationFn: (bulkScheduleUuid: string) => scheduleApi.publishDraftSchedule(bulkScheduleUuid),
   });
 
-  const handleSave = (status: BulkScheduleStatus) => {
-    const items = buildBulkScheduleItems(activeWeek, employees);
-    if (items.length === 0) {
-      Alert.alert('Nothing to save', 'Add at least one shift before saving.');
-      return;
-    }
-    bulkSaveMutation.mutate(
-      { week: activeWeek.week.week_number, schedules: items, status },
-      {
-        onSuccess: () => {
-          setWeeks((prev) =>
-            prev.map((week, index) =>
-              index === activeWeekIndex
-                ? { ...week, saveStatus: status }
-                : week,
-            ),
-          );
-          // Bulk Schedules list reads from this same key — refetch it so an
-          // edit (or a brand new roster) shows up there without a manual pull.
-          queryClient.invalidateQueries({ queryKey: ['bulk-schedules'] });
-          // A bulk create/update also creates/updates individual Schedule
-          // records under the hood — invalidating just `['bulk-schedules']`
-          // left every individual-schedule list (Home's "My Schedule" tab,
-          // "All Schedules", Manage Schedules' Individual tab — each keyed
-          // `['schedules', ...different params]`) showing stale data until
-          // its own staleTime happened to expire. `queryClient.invalidateQueries`
-          // matches by key PREFIX, not exact equality, so `['schedules']`
-          // alone invalidates every one of those variants in one call — same
-          // convention CreateShiftScreen's own create/update already uses.
-          queryClient.invalidateQueries({ queryKey: ['schedules'] });
-          Alert.alert(
-            status === BulkScheduleStatus.DRAFT ? 'Draft saved' : 'Schedule published',
-            status === BulkScheduleStatus.DRAFT ? "This week's roster has been saved as a draft." : 'This week has been published.',
-          );
-        },
-        onError: (error) => {
-          setErrorModal({ title: 'Failed to save', lines: errorLines(error, 'Something went wrong. Please try again.') });
-        },
+  const handlePublish = () => {
+    const bulkScheduleUuid = activeWeek.bulkScheduleUuid;
+    if (!bulkScheduleUuid) return; // guarded by the Publish button's own disabled state too
+    const weekIndex = activeWeekIndex;
+    const weekStart = parseDateOnly(activeWeek.week.start_date);
+    publishMutation.mutate(bulkScheduleUuid, {
+      onSuccess: (bulkSchedule) => {
+        setWeeks((prev) =>
+          prev.map((week, index) =>
+            index === weekIndex
+              ? {
+                ...week,
+                saveStatus: 'published',
+                entries: buildEntriesFromSchedules(bulkSchedule.schedules, weekStart),
+              }
+              : week,
+          ),
+        );
+        queryClient.invalidateQueries({ queryKey: ['bulk-schedules'] });
+        queryClient.invalidateQueries({ queryKey: ['schedules'] });
+        Alert.alert('Schedule published', 'This week has been published.');
       },
-    );
+      onError: (error) => {
+        setErrorModal({ title: 'Failed to publish', lines: errorLines(error, 'Something went wrong. Please try again.') });
+      },
+    });
   };
 
   return (
@@ -498,7 +616,81 @@ export function BulkScheduleScreen() {
                     }
                     onSelectWeek={isEditing ? undefined : (newWeek) => changeCardWeek(index, newWeek)}
                     dailyCosts={week.dailyCosts}
+                    onEditorOpen={() => week.bulkScheduleUuid && fetchViolations(index, week.bulkScheduleUuid)}
                   />
+
+                  <View style={styles.violationsCard}>
+                    <View style={styles.violationsHeader}>
+                      <Pressable style={styles.violationsHeaderLeft} onPress={() => toggleViolationsCollapsed(index)}>
+                        <MaterialIcons
+                          name={week.violationsCollapsed ? 'expand-more' : 'expand-less'}
+                          size={20}
+                          color={Colors.onSurface}
+                        />
+                        <Text style={styles.violationsTitle}>Rule Violations</Text>
+                        {(() => {
+                          const count = (week.ruleViolations ?? []).reduce((sum, e) => sum + e.violations.length, 0);
+                          return count > 0 ? (
+                            <View style={styles.violationsBadge}>
+                              <Text style={styles.violationsBadgeText}>{count}</Text>
+                            </View>
+                          ) : null;
+                        })()}
+                      </Pressable>
+                      <Pressable
+                        hitSlop={8}
+                        disabled={!week.bulkScheduleUuid || week.violationsLoading}
+                        onPress={() => week.bulkScheduleUuid && fetchViolations(index, week.bulkScheduleUuid)}
+                      >
+                        {week.violationsLoading ? (
+                          <ActivityIndicator size="small" color={Colors.primary} />
+                        ) : (
+                          <MaterialIcons
+                            name="refresh"
+                            size={20}
+                            color={week.bulkScheduleUuid ? Colors.primary : Colors.outline}
+                          />
+                        )}
+                      </Pressable>
+                    </View>
+
+                    {!week.violationsCollapsed ? (
+                      <View style={styles.violationsBody}>
+                        {week.ruleViolations === null ? (
+                          <Text style={styles.violationsEmptyText}>
+                            {week.bulkScheduleUuid
+                              ? 'Tap the refresh icon to check for rule violations.'
+                              : 'Save a shift first to check for rule violations.'}
+                          </Text>
+                        ) : week.ruleViolations.length === 0 ? (
+                          <Text style={styles.violationsEmptyText}>No rule violations.</Text>
+                        ) : (
+                          week.ruleViolations.map((employeeViolations) => (
+                            <View key={employeeViolations.employee.uuid} style={styles.violationsEmployeeGroup}>
+                              <Text style={styles.violationsEmployeeName}>
+                                {employeeViolations.employee.first_name} {employeeViolations.employee.last_name}
+                              </Text>
+                              {employeeViolations.violations.map((violation) => (
+                                <View key={violation.code} style={styles.violationRow}>
+                                  <View
+                                    style={[
+                                      styles.violationDot,
+                                      violation.severity === 'blocking' ? styles.violationDotBlocking : styles.violationDotWarning,
+                                    ]}
+                                  />
+                                  <View style={styles.violationTextGroup}>
+                                    <Text style={styles.violationLabel}>{violation.label}</Text>
+                                    <Text style={styles.violationMessage}>{violation.message}</Text>
+                                  </View>
+                                </View>
+                              ))}
+                            </View>
+                          ))
+                        )}
+                      </View>
+                    ) : null}
+                  </View>
+
                   {isResolvingWeek ? (
                     <View style={styles.weekLoadingOverlay}>
                       <ActivityIndicator color={Colors.primary} />
@@ -598,16 +790,10 @@ export function BulkScheduleScreen() {
           </View>
           <View style={styles.bottomBarActions}>
             <Button
-              label="Save Draft"
-              variant="secondary"
-              onPress={() => handleSave(BulkScheduleStatus.DRAFT)}
-              loading={bulkSaveMutation.isPending}
-              style={styles.bottomBarButton}
-            />
-            <Button
               label={`Publish (W${activeWeek.week.week_number})`}
-              onPress={() => handleSave(BulkScheduleStatus.PUBLISHED)}
-              loading={bulkSaveMutation.isPending}
+              onPress={handlePublish}
+              disabled={!activeWeek.bulkScheduleUuid || activeWeek.ruleViolations.length > 0}
+              loading={publishMutation.isPending}
               style={styles.bottomBarButton}
             />
           </View>
@@ -657,6 +843,85 @@ const styles = StyleSheet.create({
   },
   activeWeekWrapper: {
     position: 'relative',
+    gap: Spacing.gutter,
+  },
+  violationsCard: {
+    backgroundColor: Colors.surfaceContainerLowest,
+    borderWidth: 1,
+    borderColor: Colors.outlineVariant,
+    borderRadius: Radius.lg,
+    padding: Spacing.cardPadding,
+    gap: Spacing.gutter,
+  },
+  violationsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  violationsHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.unit * 2,
+    flex: 1,
+  },
+  violationsTitle: {
+    ...Typography.titleMd,
+    color: Colors.onSurface,
+  },
+  violationsBadge: {
+    backgroundColor: Colors.errorContainer,
+    borderRadius: Radius.full,
+    paddingHorizontal: Spacing.unit * 2,
+    paddingVertical: 2,
+  },
+  violationsBadgeText: {
+    ...Typography.labelSm,
+    fontFamily: 'Inter_600SemiBold',
+    color: Colors.onErrorContainer,
+  },
+  violationsBody: {
+    gap: Spacing.unit * 4,
+  },
+  violationsEmptyText: {
+    ...Typography.bodyMd,
+    color: Colors.onSurfaceVariant,
+  },
+  violationsEmployeeGroup: {
+    gap: Spacing.unit * 2,
+  },
+  violationsEmployeeName: {
+    ...Typography.bodyMd,
+    fontFamily: 'Inter_600SemiBold',
+    color: Colors.onSurface,
+  },
+  violationRow: {
+    flexDirection: 'row',
+    gap: Spacing.unit * 2,
+    paddingLeft: Spacing.unit * 2,
+  },
+  violationDot: {
+    width: 8,
+    height: 8,
+    borderRadius: Radius.full,
+    marginTop: 6,
+  },
+  violationDotBlocking: {
+    backgroundColor: Colors.error,
+  },
+  violationDotWarning: {
+    backgroundColor: Colors.tertiary,
+  },
+  violationTextGroup: {
+    flex: 1,
+    gap: 2,
+  },
+  violationLabel: {
+    ...Typography.bodyMd,
+    color: Colors.onSurface,
+  },
+  violationMessage: {
+    ...Typography.labelSm,
+    color: Colors.onSurfaceVariant,
   },
   weekLoadingOverlay: {
     position: 'absolute',
