@@ -27,8 +27,8 @@ export function PeopleOnFloorSection({ schedules }: PeopleOnFloorSectionProps) {
           {schedules.map((shift) => (
             <FloorPersonCard
               key={shift.uuid}
-              name={`${shift.employee.first_name} ${shift.employee.last_name}`}
-              role={shift.employee.designation.name}
+              name={shift.employee ? `${shift.employee.first_name} ${shift.employee.last_name}` : 'Open Shift'}
+              role={shift.employee?.designation.name ?? 'Unassigned'}
               startedAtLabel={formatStartedAt(shift.start_time)}
               location={locationLabel(shift.work_location)}
             />

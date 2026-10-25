@@ -20,7 +20,10 @@ function employeesFromSchedules(schedules: Schedule[]): BulkEmployeeRow[] {
   const seen = new Set<string>();
   const rows: BulkEmployeeRow[] = [];
   for (const schedule of schedules) {
-    if (seen.has(schedule.employee.uuid)) continue;
+    // Open shifts (no employee assigned) have nothing to add here — the
+    // grid's own entry-building still renders them as "Open Shift" without
+    // needing a row in this employee list.
+    if (!schedule.employee || seen.has(schedule.employee.uuid)) continue;
     seen.add(schedule.employee.uuid);
     rows.push({
       uuid: schedule.employee.uuid,

@@ -23,7 +23,8 @@ export type StartMethod = 'qr' | 'manual';
 
 export type Schedule = {
     uuid: string;
-    employee: ScheduleEmployee;
+    /** null means this is an open shift — no employee assigned yet, pickable by any employee later. */
+    employee: ScheduleEmployee | null;
     work_location: WorkLocation | null;
     start_method: StartMethod;
     start_time: string;
@@ -40,7 +41,8 @@ export type ScheduleListResponse = {
 };
 
 export type CreateSchedulePayload = {
-    employee_uuid: string;
+    /** Omit to create an open shift — no employee assigned, pickable by any employee later. */
+    employee_uuid?: string;
     work_location_uuid?: string;
     start_time: string;
     end_time: string;
@@ -60,6 +62,7 @@ export type BulkScheduleItem = {
 export enum BulkScheduleStatus {
     DRAFT = 'draft',
     PUBLISHED = 'published',
+    OPEN = 'open'
 }
 
 export type CreateBulkSchedulePayload = {
@@ -280,10 +283,6 @@ export const scheduleApi = {
         const response = await baseApi.get<WorkWeekListResponse>(apiPath(`/employee/work-weeks/`));
         return response.data;
     },
-    // updateWeeklyShifts: async (payload: CreateBulkSchedulePayload, week_number: number): Promise<BulkSchedule> => {
-    //     const response = await baseApi.put(apiPath(`${BULK_SCHEDULES_PATH}${week_number}/`), payload);
-    //     return response.data;
-    // },
     getBulkSchedule: async (week_number: number): Promise<BulkSchedule> => {
         const response = await baseApi.get(apiPath(`${BULK_SCHEDULES_PATH}${week_number}/`));
         return response.data;

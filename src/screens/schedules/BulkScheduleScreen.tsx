@@ -125,7 +125,8 @@ export function buildEntriesFromSchedules(schedules: Schedule[], weekStart: Date
     if (dayIndex < 0 || dayIndex > 6) continue;
     entries.push({
       id: schedule.uuid,
-      employeeUuid: schedule.employee.uuid,
+      // null means an open shift — no employee assigned yet.
+      employeeUuid: schedule.employee?.uuid ?? '',
       dayIndex,
       start: formatTimeHHMM(new Date(schedule.start_time)),
       end: formatTimeHHMM(new Date(schedule.end_time)),
@@ -223,7 +224,10 @@ function buildSchedulePayload(entry: BulkShiftEntry, weekStart: Date): CreateSch
   const startDate = addDaysToDate(weekStart, entry.dayIndex);
   const endDate = timeToMinutes(entry.end) <= timeToMinutes(entry.start) ? addDaysToDate(startDate, 1) : startDate;
   return {
-    employee_uuid: entry.employeeUuid,
+    // Omitted (not sent as '') when unassigned — the backend treats a
+    // shift with no employee_uuid as an open shift any employee can pick
+    // up later.
+    ...(entry.employeeUuid ? { employee_uuid: entry.employeeUuid } : {}),
     start_time: combineDateAndTime(startDate, entry.start),
     end_time: combineDateAndTime(endDate, entry.end),
     break_time: entry.breakMinutes ? toBreakTimeString(entry.breakMinutes) : '',
@@ -461,7 +465,7 @@ export function BulkScheduleScreen() {
     for (const dayIndex of changedDayIndexes(previousEntries, nextEntries)) {
       const day = addDaysToDate(weekStart, dayIndex);
       const date = toDateOnlyString(day);
-      const dayEntries = nextEntries.filter((entry) => entry.dayIndex === dayIndex);
+      const dayEntries = nextEntries.filter((entry) => entry.dayIndex === dayIndex && entry.employeeUuid);
       if (dayEntries.length === 0) {
         setDayCost(weekIndex, date, undefined);
         continue;

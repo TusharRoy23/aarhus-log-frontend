@@ -17,7 +17,10 @@ export interface BulkScheduleListSectionProps {
 }
 
 function countScheduledEmployees(bulkSchedule: BulkSchedule): number {
-  return new Set(bulkSchedule.schedules.map((schedule) => schedule.employee.uuid)).size;
+  // Open shifts (no employee assigned) don't count toward anyone.
+  return new Set(
+    bulkSchedule.schedules.filter((schedule) => schedule.employee).map((schedule) => schedule.employee!.uuid),
+  ).size;
 }
 
 export function BulkScheduleListSection({ bulkSchedules, onSelect }: BulkScheduleListSectionProps) {
