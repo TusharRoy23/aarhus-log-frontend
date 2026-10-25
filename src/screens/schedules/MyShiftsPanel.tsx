@@ -150,7 +150,7 @@ export function MyShiftsPanel() {
   });
   const mySchedules = useMemo(
     () =>
-      currentUserEmail ? (myScheduleData?.results ?? []).filter((s) => s.employee.email === currentUserEmail) : [],
+      currentUserEmail ? (myScheduleData?.results ?? []).filter((s) => s.employee?.email === currentUserEmail) : [],
     [myScheduleData, currentUserEmail],
   );
 

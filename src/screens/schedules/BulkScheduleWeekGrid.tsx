@@ -217,10 +217,9 @@ export function BulkScheduleWeekGrid({
 
   const handleSaveEntry = () => {
     if (!editorTarget) return;
-    if (!draftEmployeeUuid) {
-      setEntryError('Please select an employee.');
-      return;
-    }
+    // No employee selected isn't an error — it's an open shift, left for
+    // any employee to pick up later. The backend treats a shift with no
+    // employee_uuid this way.
     if (!draftStart || !draftEnd) {
       setEntryError('Please set both a start and end time.');
       return;
@@ -236,14 +235,19 @@ export function BulkScheduleWeekGrid({
     }
     const dayIndex = editorTarget.mode === 'add' ? editorTarget.dayIndex : editorTarget.entry.dayIndex;
     const currentId = editorTarget.mode === 'edit' ? editorTarget.entry.id : null;
-    const isDuplicate = entries.some(
-      (entry) =>
-        entry.id !== currentId &&
-        entry.dayIndex === dayIndex &&
-        entry.employeeUuid === draftEmployeeUuid &&
-        entry.start === draftStart &&
-        entry.end === draftEnd,
-    );
+    // Open shifts (no employee) are exempt — there can be any number of
+    // separate open slots at the same day/time, since they aren't the same
+    // person double-booked.
+    const isDuplicate =
+      !!draftEmployeeUuid &&
+      entries.some(
+        (entry) =>
+          entry.id !== currentId &&
+          entry.dayIndex === dayIndex &&
+          entry.employeeUuid === draftEmployeeUuid &&
+          entry.start === draftStart &&
+          entry.end === draftEnd,
+      );
     if (isDuplicate) {
       setEntryError('This employee already has a shift at this time.');
       return;
@@ -364,6 +368,7 @@ export function BulkScheduleWeekGrid({
                         </Text>
                         {group.entries.map((entry) => {
                           const employee = employeeByUuid.get(entry.employeeUuid);
+                          const isOpen = !entry.employeeUuid;
                           return (
                             <Pressable
                               key={entry.id}
@@ -371,9 +376,18 @@ export function BulkScheduleWeekGrid({
                               onPress={readOnly ? undefined : () => openEditEditor(entry)}
                               disabled={readOnly}
                             >
-                              <Avatar label={employee?.name ?? '?'} size={24} />
-                              <Text style={styles.employeeRowName} numberOfLines={1}>
-                                {employee?.name ?? 'Unknown employee'}
+                              {isOpen ? (
+                                <View style={styles.openShiftIcon}>
+                                  <MaterialIcons name="person-outline" size={14} color={Colors.primary} />
+                                </View>
+                              ) : (
+                                <Avatar label={employee?.name ?? '?'} size={24} />
+                              )}
+                              <Text
+                                style={[styles.employeeRowName, isOpen && styles.openShiftText]}
+                                numberOfLines={1}
+                              >
+                                {isOpen ? 'Open Shift' : employee?.name ?? 'Unknown employee'}
                               </Text>
                             </Pressable>
                           );
@@ -432,7 +446,14 @@ export function BulkScheduleWeekGrid({
                     label="Employee"
                     placeholder="Select employee"
                     value={draftEmployeeUuid}
-                    options={employees.map((employee) => ({ label: employee.name, value: employee.uuid }))}
+                    options={[
+                      // Leaving this shift unassigned (the default) is a
+                      // real, deliberate choice, not a gap — the backend
+                      // treats a shift with no employee_uuid as an open
+                      // shift any employee can later pick up.
+                      { label: 'Open Shift (Unassigned)', value: '' },
+                      ...employees.map((employee) => ({ label: employee.name, value: employee.uuid })),
+                    ]}
                     onChange={setDraftEmployeeUuid}
                     icon={<MaterialIcons name="person" size={20} color={Colors.outline} />}
                   />
@@ -604,6 +625,20 @@ const styles = StyleSheet.create({
     ...Typography.labelSm,
     color: Colors.onSurface,
     flexShrink: 1,
+  },
+  openShiftIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  openShiftText: {
+    color: Colors.primary,
+    fontFamily: 'Inter_600SemiBold',
   },
   addTimespanRow: {
     flexDirection: 'row',

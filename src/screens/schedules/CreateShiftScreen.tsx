@@ -106,7 +106,7 @@ export function CreateShiftScreen() {
     ? {
       startTime: fromApiDateTime(existingSchedule.start_time),
       endTime: fromApiDateTime(existingSchedule.end_time),
-      employeeUuid: existingSchedule.employee.uuid,
+      employeeUuid: existingSchedule.employee?.uuid ?? '',
       workLocationUuid: existingSchedule.work_location?.uuid ?? '',
       breakMinutes: fromBreakTimeString(existingSchedule.break_time),
       is_scannable: existingSchedule.start_method === 'qr',
