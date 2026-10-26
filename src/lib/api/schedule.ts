@@ -315,6 +315,10 @@ export const scheduleApi = {
         const response = await baseApi.post<BulkSchedule>(apiPath(`${BULK_SCHEDULES_PATH}${bulkScheduleUuid}/publish/`));
         return response.data;
     },
+    getPublishedSchedule: async (): Promise<PaginatedResponse<BulkSchedule>> => {
+        const response = await baseApi.get<PaginatedResponse<BulkSchedule>>(apiPath(`${BULK_SCHEDULES_PATH}published/`));
+        return response.data;
+    },
     getViolatedRules: async (scheduleUuid: string): Promise<PaginatedResponse<EmployeeRuleViolations>> => {
         const response = await baseApi.get<PaginatedResponse<EmployeeRuleViolations>>(apiPath(`${BULK_SCHEDULES_PATH}${scheduleUuid}/rule-violations/`));
         return response.data;

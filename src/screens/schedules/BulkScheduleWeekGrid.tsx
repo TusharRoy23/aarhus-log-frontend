@@ -55,6 +55,15 @@ function addDaysToDate(date: Date, days: number): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
 }
 
+// Date-only comparison — today itself is not past, only strictly earlier
+// days are. Once a day has passed there's nothing left to add, and any
+// shift already on it is history, not something to edit or delete.
+function isPastDate(date: Date): boolean {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return date.getTime() < today.getTime();
+}
+
 // The 7 calendar dates of `week`, Monday..Sunday, parsed off its
 // authoritative `start_date` (server-provided, not client-computed).
 function getWeekDays(week: WorkWeek): { index: number; date: Date }[] {
@@ -345,6 +354,7 @@ export function BulkScheduleWeekGrid({
               const dayEntries = entriesByDay.get(day.index) ?? [];
               const timeGroups = groupEntriesByTime(dayEntries);
               const dayCost = costByDate.get(toDateOnlyString(day.date));
+              const isPastDay = isPastDate(day.date);
               return (
                 <View key={day.index} style={styles.dayColumn}>
                   <View style={styles.dayHeader}>
@@ -395,7 +405,7 @@ export function BulkScheduleWeekGrid({
                       </View>
                     ))}
 
-                    {!readOnly ? (
+                    {!readOnly && !isPastDay ? (
                       <Pressable style={styles.addTimespanRow} onPress={() => openAddEditor(day.index)}>
                         <MaterialIcons name="add" size={16} color={Colors.primary} />
                         <Text style={styles.addTimespanText}>Add more</Text>
@@ -426,21 +436,52 @@ export function BulkScheduleWeekGrid({
         <View style={styles.overlay}>
           <Pressable style={StyleSheet.absoluteFill} onPress={closeEditor} accessibilityLabel="Close" />
           <View style={styles.sheet}>
-            {editorTarget ? (
+            {editorTarget ? (() => {
+              const editorDayIndex = editorTarget.mode === 'add' ? editorTarget.dayIndex : editorTarget.entry.dayIndex;
+              const editorDate = addDaysToDate(parseDateOnly(week.start_date), editorDayIndex);
+              // A past day's existing shift is history — nothing to edit or
+              // delete, just the details it ran with. Can't happen for
+              // 'add' since the "Add more" row is already hidden for past
+              // days, so this only ever applies to 'edit'.
+              const isEditorDayPast = editorTarget.mode === 'edit' && isPastDate(editorDate);
+              const draftEmployee = employeeByUuid.get(draftEmployeeUuid);
+              const draftWorkLocationLabel = workLocationOptions.find((option) => option.value === draftWorkLocationUuid)?.label;
+
+              return (
               <>
                 <Text style={styles.sheetTitle}>
-                  {editorTarget.mode === 'edit' ? 'Edit Shift' : 'Add Shift'}
+                  {isEditorDayPast ? 'Shift Details' : editorTarget.mode === 'edit' ? 'Edit Shift' : 'Add Shift'}
                 </Text>
                 <Text style={styles.sheetSubtitle}>
-                  {DAY_LABELS[editorTarget.mode === 'add' ? editorTarget.dayIndex : editorTarget.entry.dayIndex]}{' '}
-                  {formatDayDate(
-                    addDaysToDate(
-                      parseDateOnly(week.start_date),
-                      editorTarget.mode === 'add' ? editorTarget.dayIndex : editorTarget.entry.dayIndex,
-                    ),
-                  )}
+                  {DAY_LABELS[editorDayIndex]} {formatDayDate(editorDate)}
                 </Text>
 
+                {isEditorDayPast ? (
+                  <View style={styles.detailList}>
+                    <View style={styles.detailRow}>
+                      <Text style={styles.detailLabel}>Employee</Text>
+                      <Text style={styles.detailValue}>{draftEmployeeUuid ? draftEmployee?.name ?? 'Unknown employee' : 'Open Shift'}</Text>
+                    </View>
+                    <View style={styles.detailRow}>
+                      <Text style={styles.detailLabel}>Time</Text>
+                      <Text style={styles.detailValue}>{draftStart} – {draftEnd}</Text>
+                    </View>
+                    <View style={styles.detailRow}>
+                      <Text style={styles.detailLabel}>Break</Text>
+                      <Text style={styles.detailValue}>{draftBreakMinutes ? `${draftBreakMinutes} min` : 'None'}</Text>
+                    </View>
+                    {draftWorkLocationLabel ? (
+                      <View style={styles.detailRow}>
+                        <Text style={styles.detailLabel}>Work Location</Text>
+                        <Text style={styles.detailValue}>{draftWorkLocationLabel}</Text>
+                      </View>
+                    ) : null}
+                    <View style={styles.detailRow}>
+                      <Text style={styles.detailLabel}>Scannable QR Code</Text>
+                      <Text style={styles.detailValue}>{draftIsScannable ? 'Yes' : 'No'}</Text>
+                    </View>
+                  </View>
+                ) : (
                 <View style={styles.sheetFields}>
                   <SelectField
                     label="Employee"
@@ -486,18 +527,26 @@ export function BulkScheduleWeekGrid({
                     <Text style={styles.scannableLabel}>Scannable QR Code</Text>
                   </View>
                 </View>
+                )}
 
-                {entryError ? <Text style={styles.errorText}>{entryError}</Text> : null}
+                {!isEditorDayPast && entryError ? <Text style={styles.errorText}>{entryError}</Text> : null}
 
                 <View style={styles.sheetFooter}>
-                  {editorTarget.mode === 'edit' ? (
-                    <Button label="Del" variant="destructive" onPress={handleRemoveEntry} style={styles.sheetButton} />
-                  ) : null}
-                  <Button label="Close" variant="secondary" onPress={closeEditor} style={styles.sheetButton} />
-                  <Button label="Save" onPress={handleSaveEntry} style={styles.sheetButton} />
+                  {isEditorDayPast ? (
+                    <Button label="Close" variant="secondary" onPress={closeEditor} style={styles.sheetButton} />
+                  ) : (
+                    <>
+                      {editorTarget.mode === 'edit' ? (
+                        <Button label="Del" variant="destructive" onPress={handleRemoveEntry} style={styles.sheetButton} />
+                      ) : null}
+                      <Button label="Close" variant="secondary" onPress={closeEditor} style={styles.sheetButton} />
+                      <Button label="Save" onPress={handleSaveEntry} style={styles.sheetButton} />
+                    </>
+                  )}
                 </View>
               </>
-            ) : null}
+              );
+            })() : null}
           </View>
         </View>
       </Modal>
@@ -718,6 +767,25 @@ const styles = StyleSheet.create({
   },
   sheetFields: {
     gap: Spacing.unit * 4,
+  },
+  detailList: {
+    gap: Spacing.unit * 3,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: Spacing.unit * 2,
+  },
+  detailLabel: {
+    ...Typography.labelSm,
+    color: Colors.onSurfaceVariant,
+  },
+  detailValue: {
+    ...Typography.bodyMd,
+    color: Colors.onSurface,
+    flexShrink: 1,
+    textAlign: 'right',
   },
   unitLabel: {
     ...Typography.labelSm,

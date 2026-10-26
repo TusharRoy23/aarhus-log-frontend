@@ -572,6 +572,7 @@ export function BulkScheduleScreen() {
           ),
         );
         queryClient.invalidateQueries({ queryKey: ['bulk-schedules'] });
+        queryClient.invalidateQueries({ queryKey: ['published-bulk-schedules'] });
         queryClient.invalidateQueries({ queryKey: ['schedules'] });
         Alert.alert('Schedule published', 'This week has been published.');
       },
