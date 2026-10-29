@@ -10,7 +10,7 @@ export type ScheduleEmployee = {
     last_name: string;
     email: string;
     employee_code: string;
-    designation: Designation;
+    // designation: Designation;
 };
 
 export type WorkLocation = {
@@ -25,6 +25,8 @@ export type Schedule = {
     uuid: string;
     /** null means this is an open shift — no employee assigned yet, pickable by any employee later. */
     employee: ScheduleEmployee | null;
+    /** null when no role was selected for this shift — optional on create/update. */
+    role: Designation | null;
     work_location: WorkLocation | null;
     start_method: StartMethod;
     start_time: string;
@@ -43,6 +45,7 @@ export type ScheduleListResponse = {
 export type CreateSchedulePayload = {
     /** Omit to create an open shift — no employee assigned, pickable by any employee later. */
     employee_uuid?: string;
+    role_uuid?: string;
     work_location_uuid?: string;
     start_time: string;
     end_time: string;
@@ -279,12 +282,16 @@ export const scheduleApi = {
         const response = await baseApi.get(apiPath(BULK_SCHEDULES_PATH));
         return response.data;
     },
-    listWorkWeeks: async (): Promise<WorkWeekListResponse> => {
-        const response = await baseApi.get<WorkWeekListResponse>(apiPath(`/employee/work-weeks/`));
+    listWorkWeeks: async (type?: 'full' | 'upcoming'): Promise<WorkWeekListResponse> => {
+        const response = await baseApi.get<WorkWeekListResponse>(apiPath(`/employee/work-weeks/`), { params: { type } });
         return response.data;
     },
     getBulkSchedule: async (week_number: number): Promise<BulkSchedule> => {
         const response = await baseApi.get(apiPath(`${BULK_SCHEDULES_PATH}${week_number}/`));
+        return response.data;
+    },
+    getPublishedBulkSchedule: async (week_number: number): Promise<BulkSchedule> => {
+        const response = await baseApi.get(apiPath(`${BULK_SCHEDULES_PATH}published/${week_number}/`));
         return response.data;
     },
     getDailyCosts: async (week_number: number): Promise<PaginatedResponse<ScheduleDailyCost>> => {

@@ -1,4 +1,4 @@
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
@@ -6,40 +6,21 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
-import { scheduleApi, type Schedule, type WorkWeek } from '../../lib/api/schedule';
+import { Radius } from '../../theme/radius';
+import { useAppSelector } from '../../store/hooks';
+import { scheduleApi, type WorkWeek } from '../../lib/api/schedule';
 import { getApiErrorMessage } from '../../lib/api/base_api';
-import { formatWeekLabel, parseDateOnly, resolveBulkScheduleWeek } from './schedule-format';
-import { buildEntriesFromSchedules } from './BulkScheduleScreen';
-import { BulkScheduleWeekGrid, type BulkEmployeeRow } from './BulkScheduleWeekGrid';
-
-// One row per employee that actually has a shift in this bulk schedule —
-// deliberately not every active employee (unlike the create/edit screen),
-// since this is a read-only view of a specific already-published roster,
-// not a blank grid waiting to be filled in.
-function employeesFromSchedules(schedules: Schedule[]): BulkEmployeeRow[] {
-  const seen = new Set<string>();
-  const rows: BulkEmployeeRow[] = [];
-  for (const schedule of schedules) {
-    // Open shifts (no employee assigned) have nothing to add here — the
-    // grid's own entry-building still renders them as "Open Shift" without
-    // needing a row in this employee list.
-    if (!schedule.employee || seen.has(schedule.employee.uuid)) continue;
-    seen.add(schedule.employee.uuid);
-    rows.push({
-      uuid: schedule.employee.uuid,
-      name: `${schedule.employee.first_name} ${schedule.employee.last_name}`,
-      designation: schedule.employee.designation.name,
-    });
-  }
-  return rows;
-}
+import { resolveBulkScheduleWeek } from './schedule-format';
+import { PublishedScheduleBoard } from './PublishedScheduleBoard';
 
 // Read-only detail view for one published bulk schedule, reached by tapping
-// a row in the Home screen's "Schedules" tab (SchedulePanel). Reuses
-// BulkScheduleWeekGrid in `readOnly` mode — same grid UI as the admin
-// create/edit screen, just with cell taps and Save/Publish removed.
+// a row in the Home screen's "Schedules" tab (SchedulePanel). Renders
+// PublishedScheduleBoard — a dedicated task-board-style layout, distinct
+// from BulkScheduleWeekGrid's own readOnly mode (which stays the plain
+// table view, unaffected by this screen's redesign).
 export function BulkScheduleViewScreen() {
   const router = useRouter();
+  const organization = useAppSelector((state) => state.auth.organization);
   const { week_number: weekNumberParam } = useLocalSearchParams<{ week_number?: string }>();
   const weekNumber = Number(weekNumberParam);
 
@@ -50,7 +31,7 @@ export function BulkScheduleViewScreen() {
     error: bulkScheduleError,
   } = useQuery({
     queryKey: ['bulk-schedule', weekNumber],
-    queryFn: () => scheduleApi.getBulkSchedule(weekNumber),
+    queryFn: () => scheduleApi.getPublishedBulkSchedule(weekNumber),
     enabled: Number.isFinite(weekNumber),
   });
 
@@ -58,20 +39,12 @@ export function BulkScheduleViewScreen() {
   // resolveBulkScheduleWeek) — the week_number/week_year themselves already
   // come straight from `bulkSchedule`.
   const { data: workWeekData, isPending: isWorkWeeksPending } = useQuery({
-    queryKey: ['work-weeks'],
-    queryFn: scheduleApi.listWorkWeeks,
+    queryKey: ['work-weeks', 'upcoming'],
+    queryFn: () => scheduleApi.listWorkWeeks('upcoming'),
   });
   const workWeeks: WorkWeek[] = workWeekData?.results ?? [];
 
-  // A separate, best-effort endpoint from the bulk schedule itself — fetched
-  // fresh whenever this week is opened, not embedded in `bulkSchedule`.
-  const { data: weeklyCostsData } = useQuery({
-    queryKey: ['bulk-schedule-weekly-costs', weekNumber],
-    queryFn: () => scheduleApi.getWeeklyCosts(weekNumber),
-    enabled: Number.isFinite(weekNumber),
-  });
-
-  const resolvedWeek = bulkSchedule ? resolveBulkScheduleWeek(bulkSchedule, workWeeks) : undefined;
+  const resolvedWeek = bulkSchedule != null ? resolveBulkScheduleWeek(bulkSchedule, workWeeks) : undefined;
 
   const isLoading = isBulkSchedulePending || isWorkWeeksPending;
   const loadError = isBulkScheduleError
@@ -80,34 +53,75 @@ export function BulkScheduleViewScreen() {
       ? 'This schedule could not be found.'
       : undefined;
 
+  const weekNumbers = workWeeks.map((week) => week.week_number);
+  const currentWeekIndex = weekNumbers.indexOf(weekNumber);
+  const previousWeekNumber = currentWeekIndex > 0 ? weekNumbers[currentWeekIndex - 1] : undefined;
+  const nextWeekNumber =
+    currentWeekIndex !== -1 && currentWeekIndex < weekNumbers.length - 1
+      ? weekNumbers[currentWeekIndex + 1]
+      : undefined;
+
+  const goToWeek = (target: number | undefined) => {
+    if (target === undefined) return;
+    router.setParams({ week_number: String(target) });
+  };
+
   return (
     <SafeAreaView style={styles.flex} edges={['top', 'bottom']}>
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} hitSlop={8}>
           <MaterialIcons name="arrow-back" size={24} color={Colors.onSurface} />
         </Pressable>
-        <View style={styles.headerText}>
-          <Text style={styles.headerTitle}>Published Schedule</Text>
-          <Text style={styles.headerSubtitle}>{resolvedWeek ? formatWeekLabel(resolvedWeek) : 'Viewing this week'}</Text>
+        <Text style={styles.headerTitle} numberOfLines={1}>
+          {organization?.name ?? 'Published Schedule'}
+        </Text>
+      </View>
+
+      <View style={styles.weekNavRow}>
+        <Text style={styles.weekNavLabel}>{Number.isFinite(weekNumber) ? `Week ${weekNumber}` : 'This week'}</Text>
+        <View style={styles.weekNavArrows}>
+          <Pressable
+            style={[styles.weekNavButton, previousWeekNumber === undefined && styles.weekNavButtonDisabled]}
+            onPress={() => goToWeek(previousWeekNumber)}
+            disabled={previousWeekNumber === undefined}
+            hitSlop={8}
+          >
+            <MaterialIcons
+              name="chevron-left"
+              size={20}
+              color={previousWeekNumber !== undefined ? Colors.onSurface : Colors.outline}
+            />
+          </Pressable>
+          <Pressable
+            style={[styles.weekNavButton, nextWeekNumber === undefined && styles.weekNavButtonDisabled]}
+            onPress={() => goToWeek(nextWeekNumber)}
+            disabled={nextWeekNumber === undefined}
+            hitSlop={8}
+          >
+            <MaterialIcons
+              name="chevron-right"
+              size={20}
+              color={nextWeekNumber !== undefined ? Colors.onSurface : Colors.outline}
+            />
+          </Pressable>
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <View style={styles.content}>
         {isLoading ? (
           <ActivityIndicator color={Colors.primary} style={styles.loading} />
         ) : loadError ? (
-          <Text style={styles.errorText}>{loadError}</Text>
+          <View style={styles.emptyState}>
+            <View style={styles.emptyStateIcon}>
+              <MaterialIcons name="event-busy" size={32} color={Colors.primary} />
+            </View>
+            <Text style={styles.emptyStateTitle}>The schedule is not ready</Text>
+            <Text style={styles.emptyStateSubtitle}>{loadError}</Text>
+          </View>
         ) : bulkSchedule && resolvedWeek ? (
-          <BulkScheduleWeekGrid
-            employees={employeesFromSchedules(bulkSchedule.schedules)}
-            week={resolvedWeek}
-            entries={buildEntriesFromSchedules(bulkSchedule.schedules, parseDateOnly(resolvedWeek.start_date))}
-            onEntriesChange={() => { }}
-            readOnly
-            dailyCosts={weeklyCostsData?.days ?? []}
-          />
+          <PublishedScheduleBoard week={resolvedWeek} schedules={bulkSchedule.schedules} />
         ) : null}
-      </ScrollView>
+      </View>
     </SafeAreaView>
   );
 }
@@ -126,32 +140,78 @@ const styles = StyleSheet.create({
     borderBottomColor: Colors.outlineVariant,
     backgroundColor: Colors.surfaceContainerLowest,
   },
-  headerText: {
-    gap: 2,
-  },
   headerTitle: {
     ...Typography.headlineLgMobile,
     fontSize: 22,
     lineHeight: 28,
     color: Colors.onSurface,
+    flex: 1,
   },
-  headerSubtitle: {
-    ...Typography.bodyMd,
-    color: Colors.onSurfaceVariant,
+  weekNavRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.containerPaddingMobile,
+    paddingVertical: Spacing.unit * 3,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.outlineVariant,
+    backgroundColor: Colors.surfaceContainerLowest,
   },
-  scrollContent: {
+  weekNavLabel: {
+    ...Typography.titleMd,
+    color: Colors.onSurface,
+  },
+  weekNavArrows: {
+    flexDirection: 'row',
+    gap: Spacing.unit * 2,
+  },
+  weekNavButton: {
+    width: 32,
+    height: 32,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: Colors.outlineVariant,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  weekNavButtonDisabled: {
+    opacity: 0.4,
+  },
+  // flex: 1 (not a ScrollView) so PublishedScheduleBoard actually receives
+  // the remaining screen height to stretch its columns to, instead of an
+  // unbounded, content-sized height. Each column scrolls internally if its
+  // own shifts overflow that height — see PublishedScheduleBoard.
+  content: {
+    flex: 1,
     padding: Spacing.containerPaddingMobile,
-    gap: Spacing.gutter,
-    maxWidth: 640,
-    width: '100%',
-    alignSelf: 'center',
-    paddingBottom: Spacing.sectionGap * 2,
   },
   loading: {
     marginTop: Spacing.sectionGap,
   },
-  errorText: {
+  emptyState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.unit * 2,
+    paddingHorizontal: Spacing.sectionGap,
+  },
+  emptyStateIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.secondaryContainer,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.unit,
+  },
+  emptyStateTitle: {
+    ...Typography.titleMd,
+    color: Colors.onSurface,
+    textAlign: 'center',
+  },
+  emptyStateSubtitle: {
     ...Typography.bodyMd,
-    color: Colors.error,
+    color: Colors.onSurfaceVariant,
+    textAlign: 'center',
   },
 });

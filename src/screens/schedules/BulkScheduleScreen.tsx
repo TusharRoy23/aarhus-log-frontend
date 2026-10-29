@@ -133,6 +133,7 @@ export function buildEntriesFromSchedules(schedules: Schedule[], weekStart: Date
       breakMinutes: breakTimeStringToMinutes(schedule.break_time),
       isScannable: schedule.start_method === 'qr',
       ...(schedule.work_location ? { workLocationUuid: schedule.work_location.uuid } : {}),
+      ...(schedule.role ? { roleUuid: schedule.role.uuid } : {}),
     });
   }
   return entries;
@@ -228,6 +229,9 @@ function buildSchedulePayload(entry: BulkShiftEntry, weekStart: Date): CreateSch
     // shift with no employee_uuid as an open shift any employee can pick
     // up later.
     ...(entry.employeeUuid ? { employee_uuid: entry.employeeUuid } : {}),
+    // Not required — omitted (not sent as '') when unselected, same
+    // convention as employee_uuid above. The backend defaults it to null.
+    ...(entry.roleUuid ? { role_uuid: entry.roleUuid } : {}),
     start_time: combineDateAndTime(startDate, entry.start),
     end_time: combineDateAndTime(endDate, entry.end),
     break_time: entry.breakMinutes ? toBreakTimeString(entry.breakMinutes) : '',
@@ -306,7 +310,7 @@ export function BulkScheduleScreen() {
     isPending: isWorkWeeksPending,
     isError: isWorkWeeksError,
     error: workWeeksError,
-  } = useQuery({ queryKey: ['work-weeks'], queryFn: scheduleApi.listWorkWeeks });
+  } = useQuery({ queryKey: ['work-weeks', 'upcoming'], queryFn: () => scheduleApi.listWorkWeeks('upcoming') });
   const workWeeks: WorkWeek[] = workWeekData?.results ?? [];
 
   // Bulk schedules are cached under one shared key regardless of which

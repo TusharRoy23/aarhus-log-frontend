@@ -8,6 +8,7 @@ import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
 import { workLocationApi } from '../../lib/api/work-location';
+import { designationApi } from '../../lib/api/designation';
 import type { DailyCost, WorkWeek } from '../../lib/api/schedule';
 import { formatWeekLabel, parseDateOnly } from './schedule-format';
 
@@ -43,6 +44,8 @@ export interface BulkShiftEntry {
   /** Minutes as a numeric string, or '' when not set. */
   breakMinutes: string;
   workLocationUuid?: string;
+  /** Not required — omitted/left unset means no role was chosen for this shift. */
+  roleUuid?: string;
   isScannable: boolean;
 }
 
@@ -191,12 +194,28 @@ export function BulkScheduleWeekGrid({
     .filter((location) => location.is_active)
     .map((location) => ({ label: `${location.name} (${location.client_name})`, value: location.uuid }));
 
+  // Same "skip the fetch entirely in read-only mode" convention as
+  // work-locations above — no shift editor exists there to need this list.
+  const { data: designationData } = useQuery({
+    queryKey: ['designations'],
+    queryFn: designationApi.list,
+    enabled: !readOnly,
+  });
+  const roleOptions = (designationData?.results ?? [])
+    .filter((designation) => designation.is_active)
+    .map((designation) => ({ label: designation.name, value: designation.uuid }));
+  const roleByUuid = useMemo(
+    () => new Map((designationData?.results ?? []).map((designation) => [designation.uuid, designation])),
+    [designationData],
+  );
+
   const [editorTarget, setEditorTarget] = useState<EditorTarget | null>(null);
   const [draftEmployeeUuid, setDraftEmployeeUuid] = useState('');
   const [draftStart, setDraftStart] = useState('');
   const [draftEnd, setDraftEnd] = useState('');
   const [draftBreakMinutes, setDraftBreakMinutes] = useState('');
   const [draftWorkLocationUuid, setDraftWorkLocationUuid] = useState('');
+  const [draftRoleUuid, setDraftRoleUuid] = useState('');
   const [draftIsScannable, setDraftIsScannable] = useState(true);
   const [entryError, setEntryError] = useState<string | undefined>();
 
@@ -206,6 +225,7 @@ export function BulkScheduleWeekGrid({
     setDraftEnd('');
     setDraftBreakMinutes('');
     setDraftWorkLocationUuid('');
+    setDraftRoleUuid('');
     setDraftIsScannable(true);
     setEntryError(undefined);
     setEditorTarget({ mode: 'add', dayIndex });
@@ -217,6 +237,7 @@ export function BulkScheduleWeekGrid({
     setDraftEnd(entry.end);
     setDraftBreakMinutes(entry.breakMinutes);
     setDraftWorkLocationUuid(entry.workLocationUuid ?? '');
+    setDraftRoleUuid(entry.roleUuid ?? '');
     setDraftIsScannable(entry.isScannable);
     setEntryError(undefined);
     setEditorTarget({ mode: 'edit', entry });
@@ -272,6 +293,7 @@ export function BulkScheduleWeekGrid({
       breakMinutes: draftBreakMinutes,
       isScannable: draftIsScannable,
       ...(draftWorkLocationUuid ? { workLocationUuid: draftWorkLocationUuid } : {}),
+      ...(draftRoleUuid ? { roleUuid: draftRoleUuid } : {}),
     };
     onEntriesChange(
       currentId
@@ -446,6 +468,7 @@ export function BulkScheduleWeekGrid({
               const isEditorDayPast = editorTarget.mode === 'edit' && isPastDate(editorDate);
               const draftEmployee = employeeByUuid.get(draftEmployeeUuid);
               const draftWorkLocationLabel = workLocationOptions.find((option) => option.value === draftWorkLocationUuid)?.label;
+              const draftRoleLabel = roleByUuid.get(draftRoleUuid)?.name;
 
               return (
               <>
@@ -476,6 +499,12 @@ export function BulkScheduleWeekGrid({
                         <Text style={styles.detailValue}>{draftWorkLocationLabel}</Text>
                       </View>
                     ) : null}
+                    {draftRoleLabel ? (
+                      <View style={styles.detailRow}>
+                        <Text style={styles.detailLabel}>Role</Text>
+                        <Text style={styles.detailValue}>{draftRoleLabel}</Text>
+                      </View>
+                    ) : null}
                     <View style={styles.detailRow}>
                       <Text style={styles.detailLabel}>Scannable QR Code</Text>
                       <Text style={styles.detailValue}>{draftIsScannable ? 'Yes' : 'No'}</Text>
@@ -497,6 +526,17 @@ export function BulkScheduleWeekGrid({
                     ]}
                     onChange={setDraftEmployeeUuid}
                     icon={<MaterialIcons name="person" size={20} color={Colors.outline} />}
+                  />
+                  {/* Not required — left unselected means no role is set for
+                      this shift (null on the backend), same "omit when
+                      unselected" convention as Work Location below. */}
+                  <SelectField
+                    label="Role (Optional)"
+                    placeholder="Select role"
+                    value={draftRoleUuid}
+                    options={roleOptions}
+                    onChange={setDraftRoleUuid}
+                    icon={<MaterialIcons name="badge" size={20} color={Colors.outline} />}
                   />
                   <DateTimeField label="Start" mode="time" value={draftStart} onChange={setDraftStart} />
                   <DateTimeField label="End" mode="time" value={draftEnd} onChange={setDraftEnd} />
