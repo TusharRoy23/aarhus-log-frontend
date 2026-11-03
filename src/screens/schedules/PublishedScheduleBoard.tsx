@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Avatar } from '../../components/ui';
@@ -113,6 +114,7 @@ export interface PublishedScheduleBoardProps {
 // the two would risk the admin create/edit experience for a purely
 // cosmetic change.
 export function PublishedScheduleBoard({ week, schedules }: PublishedScheduleBoardProps) {
+  const router = useRouter();
   const currentUserEmail = useAppSelector((state) => state.auth.user?.email);
   const today = useMemo(() => new Date(), []);
 
@@ -186,7 +188,13 @@ export function PublishedScheduleBoard({ week, schedules }: PublishedScheduleBoa
                       const isMe = !!employee && employee.email === currentUserEmail;
                       const employeeName = employee ? `${employee.first_name} ${employee.last_name}` : 'Open Shift';
                       return (
-                        <View key={schedule.uuid} style={styles.card}>
+                        <Pressable
+                          key={schedule.uuid}
+                          style={styles.card}
+                          onPress={() =>
+                            router.push({ pathname: '/schedule-detail', params: { schedule_uuid: schedule.uuid } })
+                          }
+                        >
                           {employee ? (
                             <Avatar label={employeeName} size={28} />
                           ) : (
@@ -212,7 +220,7 @@ export function PublishedScheduleBoard({ week, schedules }: PublishedScheduleBoa
                               </View>
                             ) : null}
                           </View>
-                        </View>
+                        </Pressable>
                       );
                     })}
                   </View>

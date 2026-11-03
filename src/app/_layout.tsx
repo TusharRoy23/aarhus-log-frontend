@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Platform, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 // import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Stack, usePathname, useRouter } from 'expo-router';
@@ -104,8 +104,12 @@ function AppNavigator() {
           felt sluggish at full speed. */}
       <Stack screenOptions={{ headerShown: false, animation: 'fade', animationDuration: 150 }}>
         <Stack.Screen name="create-shift" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-        <Stack.Screen name="bulk-schedule" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-        <Stack.Screen name="bulk-schedule-view" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="bulk-schedule" options={{ animation: Platform.OS === 'android' ? 'slide_from_right' : 'default' }} />
+        <Stack.Screen
+          name="bulk-schedule-view"
+          options={{ animation: Platform.OS === 'android' ? 'slide_from_left' : 'default' }}
+        />
+        <Stack.Screen name="schedule-detail" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
         <Stack.Screen name="employee-form" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
         <Stack.Screen
           name="employee-permissions"

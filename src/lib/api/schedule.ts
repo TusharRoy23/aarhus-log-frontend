@@ -35,6 +35,8 @@ export type Schedule = {
     status: ShiftStatus;
     created_at: string;
     updated_at: string;
+    wages: number;
+    total_hours: number;
 };
 
 export type ScheduleListResponse = {
@@ -328,6 +330,14 @@ export const scheduleApi = {
     },
     getViolatedRules: async (scheduleUuid: string): Promise<PaginatedResponse<EmployeeRuleViolations>> => {
         const response = await baseApi.get<PaginatedResponse<EmployeeRuleViolations>>(apiPath(`${BULK_SCHEDULES_PATH}${scheduleUuid}/rule-violations/`));
+        return response.data;
+    },
+    getScheduleDetails: async (scheduleUuid: string): Promise<Schedule> => {
+        const response = await baseApi.get<Schedule>(apiPath(`${SCHEDULES_PATH}${scheduleUuid}/detail/`));
+        return response.data;
+    },
+    claimSchedule: async (scheduleUuid: string): Promise<Schedule> => {
+        const response = await baseApi.post<Schedule>(apiPath(`${SCHEDULES_PATH}${scheduleUuid}/claim/`));
         return response.data;
     }
 };
