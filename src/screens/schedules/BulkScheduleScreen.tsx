@@ -801,7 +801,7 @@ export function BulkScheduleScreen() {
             <Button
               label={`Publish (W${activeWeek.week.week_number})`}
               onPress={handlePublish}
-              disabled={!activeWeek.bulkScheduleUuid || activeWeek.ruleViolations.length > 0}
+              disabled={!activeWeek.bulkScheduleUuid}
               loading={publishMutation.isPending}
               style={styles.bottomBarButton}
             />
