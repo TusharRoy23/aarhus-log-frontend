@@ -339,5 +339,9 @@ export const scheduleApi = {
     claimSchedule: async (scheduleUuid: string): Promise<Schedule> => {
         const response = await baseApi.post<Schedule>(apiPath(`${SCHEDULES_PATH}${scheduleUuid}/claim/`));
         return response.data;
+    },
+    giveAwaySchedule: async (scheduleUuid: string): Promise<Schedule> => {
+        const response = await baseApi.post<Schedule>(apiPath(`${SCHEDULES_PATH}${scheduleUuid}/give-away/`));
+        return response.data;
     }
 };

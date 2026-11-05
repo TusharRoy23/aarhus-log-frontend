@@ -1,4 +1,4 @@
-export type ShiftStatus = 'confirmed' | 'pending' | 'completed' | 'declined' | 'published' | 'draft' | 'open';
+export type ShiftStatus = 'confirmed' | 'pending' | 'completed' | 'declined' | 'published' | 'draft' | 'open' | 'giveaway';
 
 // Semantic status colors for shift cards. Not part of the core "Kinetic
 // Enterprise" palette (theme/colors.ts) — those are Confirmed/Pending
@@ -13,6 +13,9 @@ export const StatusColors: Record<ShiftStatus, { background: string; text: strin
   // An unassigned shift any employee can pick up — its own blue "available"
   // color, distinct from the pending/confirmed/declined traffic-light set.
   open: { background: '#eff6ff', text: '#1d4ed8', strip: '#3b82f6' },
+  // Up for grabs again after its employee gave it away — its own amber-ish
+  // tone, distinct from both 'open' (blue) and 'pending' (used elsewhere).
+  giveaway: { background: '#fff7ed', text: '#c2410c', strip: '#f97316' },
 };
 
 // Employment status (`is_active`) — separate from invite status

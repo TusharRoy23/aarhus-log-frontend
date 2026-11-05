@@ -192,7 +192,10 @@ export function PublishedScheduleBoard({ week, schedules }: PublishedScheduleBoa
                           key={schedule.uuid}
                           style={styles.card}
                           onPress={() =>
-                            router.push({ pathname: '/schedule-detail', params: { schedule_uuid: schedule.uuid } })
+                            router.push({
+                              pathname: '/schedule-detail',
+                              params: { schedule_uuid: schedule.uuid, week_number: week.week_number },
+                            })
                           }
                         >
                           {employee ? (

@@ -3,14 +3,21 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MaterialIcons } from '@expo/vector-icons';
-import { Button } from '../../components/ui';
+import { ActionMenu, Button } from '../../components/ui';
 import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
-import { scheduleApi } from '../../lib/api/schedule';
+import { useAppSelector } from '../../store/hooks';
+import { Schedule, scheduleApi } from '../../lib/api/schedule';
 import { getApiErrorMessage } from '../../lib/api/base_api';
 import { capitalize, formatTimeRange, locationLabel } from './schedule-format';
+
+// Swap has no API yet, and giving away an already-given-away shift has no
+// "cancel" endpoint yet either — both stay a placeholder until those exist.
+function notImplemented(label: string) {
+  Alert.alert(label, 'Coming soon.');
+}
 
 // 'HH:MM:SS' -> '30 min' / 'None' — same convention BulkScheduleWeekGrid's
 // own shift-details view uses.
@@ -32,7 +39,12 @@ function formatWages(wages: number): string {
 export function ScheduleDetailScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { schedule_uuid: scheduleUuid } = useLocalSearchParams<{ schedule_uuid?: string }>();
+  const currentUserEmail = useAppSelector((state) => state.auth.user?.email);
+  const { schedule_uuid: scheduleUuid, week_number: weekNumberParam } = useLocalSearchParams<{
+    schedule_uuid?: string;
+    week_number?: string;
+  }>();
+  const weekNumber = Number(weekNumberParam);
 
   const {
     data: schedule,
@@ -45,21 +57,47 @@ export function ScheduleDetailScreen() {
     enabled: !!scheduleUuid,
   });
 
+  const invalidateQueries = (schedule: Schedule) => {
+    queryClient.invalidateQueries({ queryKey: ['schedule-details', schedule.uuid] });
+    queryClient.invalidateQueries({ queryKey: ['bulk-schedules'] });
+    queryClient.invalidateQueries({ queryKey: ['published-bulk-schedules'] });
+    queryClient.invalidateQueries({ queryKey: ['schedules'] });
+    if (Number.isFinite(weekNumber)) {
+      queryClient.invalidateQueries({ queryKey: ['bulk-schedule', weekNumber] });
+    }
+  }
+
   // The response is this same shift, now carrying the claiming employee —
   // written straight into the cache so the screen reflects it immediately,
   // without a second round-trip.
   const claimMutation = useMutation({
     mutationFn: () => scheduleApi.claimSchedule(scheduleUuid!),
     onSuccess: (claimedSchedule) => {
-      queryClient.setQueryData(['schedule-details', scheduleUuid], claimedSchedule);
-      queryClient.invalidateQueries({ queryKey: ['bulk-schedules'] });
-      queryClient.invalidateQueries({ queryKey: ['published-bulk-schedules'] });
-      queryClient.invalidateQueries({ queryKey: ['schedules'] });
+      invalidateQueries(claimedSchedule);
     },
     onError: (claimError) => {
       Alert.alert('Could not take this shift', getApiErrorMessage(claimError, 'Something went wrong. Please try again.'));
     },
   });
+
+  const giveAwayMutation = useMutation({
+    mutationFn: () => scheduleApi.giveAwaySchedule(scheduleUuid!),
+    onSuccess: (updatedSchedule) => {
+      invalidateQueries(updatedSchedule);
+    },
+    onError: (giveAwayError) => {
+      Alert.alert(
+        'Could not give away this shift',
+        getApiErrorMessage(giveAwayError, 'Something went wrong. Please try again.'),
+      );
+    },
+  });
+
+  // Giveaway/Swap only make sense for a shift that's actually assigned to
+  // the person viewing it — not an open shift (nothing to give away yet)
+  // and not someone else's.
+  const isMyShift = !!schedule?.employee && schedule.employee.email === currentUserEmail;
+  const isGivenAway = schedule?.status === 'giveaway';
 
   return (
     <SafeAreaView style={styles.flex} edges={['top', 'bottom']}>
@@ -126,6 +164,31 @@ export function ScheduleDetailScreen() {
           </>
         ) : null}
       </ScrollView>
+
+      {isMyShift ? (
+        <View style={styles.fabWrapper}>
+          <ActionMenu
+            trigger={
+              <View style={styles.fab}>
+                <MaterialIcons name="more-vert" size={24} color={Colors.onPrimary} />
+              </View>
+            }
+            items={[
+              {
+                label: isGivenAway ? 'Cancel Giveaway' : 'Giveaway',
+                icon: 'card-giftcard',
+                onPress: () =>
+                  isGivenAway ? notImplemented('Cancel Giveaway') : giveAwayMutation.mutate(),
+              },
+              {
+                label: 'Swap',
+                icon: 'swap-horiz',
+                onPress: () => notImplemented('Swap'),
+              },
+            ]}
+          />
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -192,5 +255,23 @@ const styles = StyleSheet.create({
     color: Colors.onSurface,
     flexShrink: 1,
     textAlign: 'right',
+  },
+  fabWrapper: {
+    position: 'absolute',
+    bottom: Spacing.sectionGap,
+    right: Spacing.containerPaddingMobile,
+  },
+  fab: {
+    width: 56,
+    height: 56,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
   },
 });
