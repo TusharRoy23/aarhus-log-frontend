@@ -101,7 +101,7 @@ export function AllSchedulesSection({ schedules, isLoading, errorMessage, onFilt
             <ShiftCard
               key={shift.uuid}
               name={shift.employee ? `${shift.employee.first_name} ${shift.employee.last_name}` : 'Open Shift'}
-              role={shift.employee?.designation.name ?? 'Unassigned'}
+              role={shift.role?.name ?? 'No Role'}
               status={shift.status}
               statusLabel={capitalize(shift.status)}
               timeRange={formatTimeRange(shift.start_time, shift.end_time)}

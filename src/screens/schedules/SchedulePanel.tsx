@@ -23,10 +23,7 @@ export function SchedulePanel() {
     isPending: isBulkSchedulesLoading,
     isError: isBulkSchedulesError,
     error: bulkSchedulesError,
-  } = useQuery({ queryKey: ['bulk-schedules'], queryFn: scheduleApi.bulkList });
-  const publishedBulkSchedules = (bulkScheduleData?.results ?? []).filter(
-    (bulkSchedule) => bulkSchedule.status === BulkScheduleStatus.PUBLISHED,
-  );
+  } = useQuery({ queryKey: ['published-bulk-schedules'], queryFn: scheduleApi.getPublishedSchedule });
 
   return (
     <View style={styles.section}>
@@ -37,7 +34,7 @@ export function SchedulePanel() {
         <Text style={styles.errorText}>{getApiErrorMessage(bulkSchedulesError, 'Failed to load schedules.')}</Text>
       ) : (
         <BulkScheduleListSection
-          bulkSchedules={publishedBulkSchedules}
+          bulkSchedules={bulkScheduleData.results}
           onSelect={(bulkSchedule) =>
             router.push({ pathname: '/bulk-schedule-view', params: { week_number: bulkSchedule.week_number } })
           }

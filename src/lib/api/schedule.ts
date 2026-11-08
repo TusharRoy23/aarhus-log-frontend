@@ -10,7 +10,7 @@ export type ScheduleEmployee = {
     last_name: string;
     email: string;
     employee_code: string;
-    designation: Designation;
+    // designation: Designation;
 };
 
 export type WorkLocation = {
@@ -25,6 +25,8 @@ export type Schedule = {
     uuid: string;
     /** null means this is an open shift — no employee assigned yet, pickable by any employee later. */
     employee: ScheduleEmployee | null;
+    /** null when no role was selected for this shift — optional on create/update. */
+    role: Designation | null;
     work_location: WorkLocation | null;
     start_method: StartMethod;
     start_time: string;
@@ -33,6 +35,8 @@ export type Schedule = {
     status: ShiftStatus;
     created_at: string;
     updated_at: string;
+    wages: number;
+    total_hours: number;
 };
 
 export type ScheduleListResponse = {
@@ -43,6 +47,7 @@ export type ScheduleListResponse = {
 export type CreateSchedulePayload = {
     /** Omit to create an open shift — no employee assigned, pickable by any employee later. */
     employee_uuid?: string;
+    role_uuid?: string;
     work_location_uuid?: string;
     start_time: string;
     end_time: string;
@@ -279,12 +284,16 @@ export const scheduleApi = {
         const response = await baseApi.get(apiPath(BULK_SCHEDULES_PATH));
         return response.data;
     },
-    listWorkWeeks: async (): Promise<WorkWeekListResponse> => {
-        const response = await baseApi.get<WorkWeekListResponse>(apiPath(`/employee/work-weeks/`));
+    listWorkWeeks: async (type?: 'full' | 'upcoming'): Promise<WorkWeekListResponse> => {
+        const response = await baseApi.get<WorkWeekListResponse>(apiPath(`/employee/work-weeks/`), { params: { type } });
         return response.data;
     },
     getBulkSchedule: async (week_number: number): Promise<BulkSchedule> => {
         const response = await baseApi.get(apiPath(`${BULK_SCHEDULES_PATH}${week_number}/`));
+        return response.data;
+    },
+    getPublishedBulkSchedule: async (week_number: number): Promise<BulkSchedule> => {
+        const response = await baseApi.get(apiPath(`${BULK_SCHEDULES_PATH}published/${week_number}/`));
         return response.data;
     },
     getDailyCosts: async (week_number: number): Promise<PaginatedResponse<ScheduleDailyCost>> => {
@@ -315,8 +324,24 @@ export const scheduleApi = {
         const response = await baseApi.post<BulkSchedule>(apiPath(`${BULK_SCHEDULES_PATH}${bulkScheduleUuid}/publish/`));
         return response.data;
     },
+    getPublishedSchedule: async (): Promise<PaginatedResponse<BulkSchedule>> => {
+        const response = await baseApi.get<PaginatedResponse<BulkSchedule>>(apiPath(`${BULK_SCHEDULES_PATH}published/`));
+        return response.data;
+    },
     getViolatedRules: async (scheduleUuid: string): Promise<PaginatedResponse<EmployeeRuleViolations>> => {
         const response = await baseApi.get<PaginatedResponse<EmployeeRuleViolations>>(apiPath(`${BULK_SCHEDULES_PATH}${scheduleUuid}/rule-violations/`));
+        return response.data;
+    },
+    getScheduleDetails: async (scheduleUuid: string): Promise<Schedule> => {
+        const response = await baseApi.get<Schedule>(apiPath(`${SCHEDULES_PATH}${scheduleUuid}/detail/`));
+        return response.data;
+    },
+    claimSchedule: async (scheduleUuid: string): Promise<Schedule> => {
+        const response = await baseApi.post<Schedule>(apiPath(`${SCHEDULES_PATH}${scheduleUuid}/claim/`));
+        return response.data;
+    },
+    giveAwaySchedule: async (scheduleUuid: string): Promise<Schedule> => {
+        const response = await baseApi.post<Schedule>(apiPath(`${SCHEDULES_PATH}${scheduleUuid}/give-away/`));
         return response.data;
     }
 };
