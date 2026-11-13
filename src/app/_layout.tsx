@@ -25,6 +25,9 @@ import { resetAssistant } from '../store/slices/assistant-slice';
 import { fetchAndStorePermissions } from '../store/permissions-actions';
 import { tokenStore } from '../lib/api/utils';
 import { isTokenValid, refreshAccessToken } from '../lib/api/refresh_token_strategy';
+import { configureNotificationHandler, registerForPushNotifications } from '../lib/push-notifications';
+
+configureNotificationHandler();
 
 // Routes reachable without a valid session. Everything else redirects to
 // Login when unauthenticated — new authenticated screens are covered
@@ -83,6 +86,9 @@ function AppNavigator() {
         // bootstrapping, the last-known copy is already good enough to
         // render the menu with.
         fetchAndStorePermissions(dispatch);
+        // Same reasoning — re-registers this device's push token on every
+        // relaunch of an existing session (tokens can rotate/expire).
+        registerForPushNotifications();
       }
       if (!cancelled) setIsBootstrapping(false);
     })();

@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "aarhus-log-frontend",
-    "slug": "aarhus-log-frontend",
+    "slug": "aarhus-logger",
     "version": "1.0.0",
     "scheme": "aarhuslog",
     "orientation": "portrait",
@@ -9,7 +9,7 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.rahsut.aarhus-log-frontend"
+      "bundleIdentifier": "com.rahsut.aarhus-log"
     },
     "android": {
       "adaptiveIcon": {
@@ -22,7 +22,9 @@
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
-      ]
+      ],
+      "package": "com_rahsut.aarhus_log",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -37,13 +39,15 @@
           "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to scan shift QR codes."
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-notifications"
     ],
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "094ee674-09cf-49ba-9bb9-13e95a00df84"
+        "projectId": "aa7bb2f8-1edf-4ace-8f4b-b0320dc38750"
       }
-    }
+    },
+    "owner": "rahsuts"
   }
 }

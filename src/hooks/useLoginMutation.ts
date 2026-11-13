@@ -5,6 +5,7 @@ import { useAppDispatch } from '../store/hooks';
 import { clearPendingLogin } from '../store/slices/pending-login-slice';
 import { setAuth } from '../store/slices/auth-slice';
 import { fetchAndStorePermissions } from '../store/permissions-actions';
+import { registerForPushNotifications } from '../lib/push-notifications';
 
 // Shared by LoginScreen (single-org auto-login) and OrganizationSelectorScreen
 // (post-picker login) — both end a `loginLookup` flow the same way: call
@@ -23,6 +24,9 @@ export function useLoginMutation() {
       // Fire-and-forget — menu visibility shouldn't block landing on the
       // post-login screen; it fills in the moment the fetch resolves.
       fetchAndStorePermissions(dispatch);
+      // Same fire-and-forget reasoning — registers this device's push token
+      // on every login, never blocking navigation.
+      registerForPushNotifications();
       // No `router.replace('/home')` here — `_layout.tsx`'s
       // `useProtectedRoute` already reacts to `isAuthenticated` flipping
       // true while sitting on `/` (from `setAuth()` above) and redirects to

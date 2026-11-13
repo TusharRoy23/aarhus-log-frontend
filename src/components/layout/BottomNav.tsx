@@ -6,7 +6,7 @@ import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Radius } from '../../theme/radius';
 
-export type BottomNavKey = 'home' | 'notifications' | 'assistant' | 'menu' | 'profile';
+export type BottomNavKey = 'home' | 'activities' | 'assistant' | 'menu' | 'profile';
 
 export interface BottomNavProps {
   active: BottomNavKey;
@@ -15,7 +15,7 @@ export interface BottomNavProps {
 
 const ITEMS: { key: BottomNavKey; label: string; icon: keyof typeof MaterialIcons.glyphMap }[] = [
   { key: 'home', label: 'Home', icon: 'home' },
-  { key: 'notifications', label: 'Notifications', icon: 'notifications' },
+  { key: 'activities', label: 'Activities', icon: 'notifications' },
   { key: 'assistant', label: 'Assistant', icon: 'smart-toy' },
   { key: 'menu', label: 'Menu', icon: 'menu' },
   { key: 'profile', label: 'Profile', icon: 'person' },

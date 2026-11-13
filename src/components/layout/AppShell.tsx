@@ -26,6 +26,7 @@ const WIDE_BREAKPOINT = 768;
 // mounted. Add an entry here whenever a new screen is wired up.
 const NAV_KEY_BY_ROUTE: Record<string, BottomNavKey> = {
   '/home': 'home',
+  '/activities': 'activities',
   '/shifts': 'menu',
   '/team': 'menu',
   '/designations': 'menu',
@@ -50,7 +51,7 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
   const isWide = width >= WIDE_BREAKPOINT;
   const router = useRouter();
   const pathname = usePathname();
-  const activeNavKey = NAV_KEY_BY_ROUTE[pathname] ?? 'schedule';
+  const activeNavKey = NAV_KEY_BY_ROUTE[pathname] ?? 'home';
   const dispatch = useAppDispatch();
   const user = useAppSelector((state) => state.auth.user);
   const organization = useAppSelector((state) => state.auth.organization);
@@ -157,14 +158,8 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
   const handleBottomNavSelect = (key: BottomNavKey) => {
     if (key === 'menu') setMenuOpen(true);
     else if (key === 'profile') setProfileOpen(true);
-    else if (key === 'notifications') notImplemented('Notifications');
+    else if (key === 'activities') navigateTo('/activities');
     else if (key === 'assistant') navigateTo('/assistant');
-    // 'schedule' is the only remaining real tab — used to call `router.back()`
-    // here, assuming the current screen was always reached by pushing on top
-    // of `/home`. That assumption doesn't always hold (e.g. no prior
-    // stack entry to pop), which threw "The action 'GO_BACK' was not handled
-    // by any navigator." Navigate to the actual destination instead, same
-    // guarded helper the Menu links use.
     else if (key === 'home') navigateTo('/home');
   };
 
