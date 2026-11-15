@@ -6,6 +6,7 @@ import { clearPendingLogin } from '../store/slices/pending-login-slice';
 import { setAuth } from '../store/slices/auth-slice';
 import { fetchAndStorePermissions } from '../store/permissions-actions';
 import { registerForPushNotifications } from '../lib/push-notifications';
+import { connectNotificationsSocket } from '../lib/notifications-socket';
 
 // Shared by LoginScreen (single-org auto-login) and OrganizationSelectorScreen
 // (post-picker login) — both end a `loginLookup` flow the same way: call
@@ -27,6 +28,7 @@ export function useLoginMutation() {
       // Same fire-and-forget reasoning — registers this device's push token
       // on every login, never blocking navigation.
       registerForPushNotifications();
+      connectNotificationsSocket(dispatch);
       // No `router.replace('/home')` here — `_layout.tsx`'s
       // `useProtectedRoute` already reacts to `isAuthenticated` flipping
       // true while sitting on `/` (from `setAuth()` above) and redirects to

@@ -1,5 +1,6 @@
+import { useEffect, useRef } from 'react';
 import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation } from '@tanstack/react-query';
 import { MaterialIcons } from '@expo/vector-icons';
 import { AppShell } from '../../components/layout/AppShell';
 import { Colors } from '../../theme/colors';
@@ -9,6 +10,8 @@ import { Radius } from '../../theme/radius';
 import { Notification, notificationApi } from '../../lib/api/notifications';
 import { getApiErrorMessage } from '../../lib/api/base_api';
 import { notificationIcon, formatNotificationTimestamp } from './activity-format';
+import { useAppDispatch, useAppSelector } from '../../store/hooks';
+import { clearUnreadCount } from '../../store/slices/notifications-slice';
 
 function ActivityRow({ notification }: { notification: Notification }) {
   const isUnread = !notification.read_at;
@@ -38,6 +41,9 @@ function ActivityRow({ notification }: { notification: Notification }) {
 }
 
 export function ActivitiesScreen() {
+  const dispatch = useAppDispatch();
+  const unreadCount = useAppSelector((state) => state.notifications.unreadCount);
+
   const {
     data,
     isPending,
@@ -53,13 +59,35 @@ export function ActivitiesScreen() {
     getNextPageParam: (lastPage, allPages) => (lastPage.next ? allPages.length + 1 : undefined),
   });
 
+  const markAllReadMutation = useMutation({
+    mutationFn: notificationApi.markAllUnreadAsRead,
+    onSuccess: () => dispatch(clearUnreadCount()),
+  });
+
+  // Fires once the list has actually rendered (first page settled), not
+  // before — marking everything read shouldn't race with or precede the
+  // user seeing what they're reading. Skips the call entirely when there's
+  // nothing unread, per the badge count already tracked in Redux. `hasRun`
+  // guards against re-firing on pagination (fetchNextPage doesn't flip
+  // `isPending`) or re-renders.
+  const hasRun = useRef(false);
+  useEffect(() => {
+    if (!isPending && !isError && !hasRun.current) {
+      hasRun.current = true;
+      if (unreadCount > 0) {
+        markAllReadMutation.mutate();
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPending, isError]);
+
   const notifications = data?.pages.flatMap((page) => page.results) ?? [];
 
   return (
     <AppShell>
       <FlatList
         data={notifications}
-        keyExtractor={(item) => item.uuid}
+        keyExtractor={(item, index) => index.toString()}
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
           <View style={styles.header}>

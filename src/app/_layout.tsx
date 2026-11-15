@@ -26,6 +26,7 @@ import { fetchAndStorePermissions } from '../store/permissions-actions';
 import { tokenStore } from '../lib/api/utils';
 import { isTokenValid, refreshAccessToken } from '../lib/api/refresh_token_strategy';
 import { configureNotificationHandler, registerForPushNotifications } from '../lib/push-notifications';
+import { connectNotificationsSocket } from '../lib/notifications-socket';
 
 configureNotificationHandler();
 
@@ -89,6 +90,7 @@ function AppNavigator() {
         // Same reasoning — re-registers this device's push token on every
         // relaunch of an existing session (tokens can rotate/expire).
         registerForPushNotifications();
+        connectNotificationsSocket(dispatch);
       }
       if (!cancelled) setIsBootstrapping(false);
     })();

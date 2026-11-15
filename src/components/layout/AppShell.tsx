@@ -17,6 +17,7 @@ import { resetAssistant } from '../../store/slices/assistant-slice';
 import { Resources } from '../../lib/api/permission';
 import { tokenStore } from '../../lib/api/utils';
 import queryClient from '../../lib/query-client';
+import { disconnectNotificationsSocket } from '../../lib/notifications-socket';
 
 const WIDE_BREAKPOINT = 768;
 
@@ -140,6 +141,7 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
     dispatch(clearAuth());
     dispatch(clearPermissions());
     dispatch(resetAssistant());
+    disconnectNotificationsSocket(dispatch);
     // The TanStack Query cache is a singleton independent of Redux — it
     // isn't cleared just because auth/permissions are. Without this, a
     // different user logging in right after would see the previous

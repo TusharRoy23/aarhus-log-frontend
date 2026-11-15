@@ -28,6 +28,7 @@ export interface Notification {
 }
 
 const NOTIFICATION_API_URL = "/notifications/"
+const NOTIFICATION_CONSUMER = "ws/notifications/"
 
 export const notificationApi = {
     registerDeviceToken: async (token: string): Promise<DeviceToken> => {
@@ -38,6 +39,14 @@ export const notificationApi = {
         const response = await baseApi.get<PaginatedResponse<Notification>>(apiPath(`${NOTIFICATION_API_URL}`), {
             params: { page },
         });
+        return response.data;
+    },
+    unreadNotificationCount: async (): Promise<{ count: number }> => {
+        const response = await baseApi.get<{ count: number }>(apiPath(`${NOTIFICATION_API_URL}unread-count/`));
+        return response.data;
+    },
+    markAllUnreadAsRead: async (): Promise<{ message: string }> => {
+        const response = await baseApi.post(apiPath(`${NOTIFICATION_API_URL}mark-all-read/`));
         return response.data;
     }
 }

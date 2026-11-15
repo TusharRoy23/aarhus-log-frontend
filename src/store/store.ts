@@ -18,6 +18,7 @@ import authReducer from './slices/auth-slice';
 import permissionsReducer from './slices/permissions-slice';
 import toastReducer from './slices/toast-slice';
 import assistantReducer from './slices/assistant-slice';
+import notificationsReducer from './slices/notifications-slice';
 
 // Nested persist (redux-persist's documented pattern for persisting only
 // part of a slice): only `conversationUuid` survives an app restart, not
@@ -40,6 +41,7 @@ const rootReducer = combineReducers({
   permissions: permissionsReducer,
   toast: toastReducer,
   assistant: persistedAssistantReducer,
+  notifications: notificationsReducer,
 });
 
 const persistedReducer = persistReducer(
