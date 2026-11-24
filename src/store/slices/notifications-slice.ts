@@ -22,7 +22,6 @@ const notificationsSlice = createSlice({
         },
         clearUnreadCount: (state) => {
             state.unreadCount = 0;
-            console.log('state.unreadCount: ', state.unreadCount);
         },
     },
 });

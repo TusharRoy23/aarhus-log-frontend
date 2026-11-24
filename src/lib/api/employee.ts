@@ -114,4 +114,8 @@ export const employeeApi = {
     deleteAbsenceApplication: async (uuid: string): Promise<void> => {
         await baseApi.delete(apiPath(`${ABSENCE_PATH}${uuid}/`));
     },
+    getScheduleEmployeeOfTheDay: async (date: string): Promise<PaginatedResponse<Employee>> => {
+        const response = await baseApi.get<PaginatedResponse<Employee>>(apiPath(`${EMPLOYEES_PATH}scheduled-employees/`), { params: { date } });
+        return response.data;
+    }
 };

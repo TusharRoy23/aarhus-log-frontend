@@ -41,6 +41,12 @@ export function isSameDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
+// "17:00" — bare clock time with no date, for layouts that show the date
+// separately (e.g. NextShiftCard's "Next shift / Today" header).
+export function formatClockTime(iso: string): string {
+  return formatTime(new Date(iso));
+}
+
 export function formatDateLabel(iso: string): string {
   const date = new Date(iso);
   const today = new Date();
@@ -106,7 +112,7 @@ function mondayOf(date: Date): Date {
   return addDaysToDate(start, -dayOffset);
 }
 
-function toDateOnlyString(date: Date): string {
+export function toDateOnlyString(date: Date): string {
   return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
 }
 

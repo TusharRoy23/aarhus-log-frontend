@@ -1,4 +1,6 @@
+import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
+import * as Notifications from 'expo-notifications';
 
 // ─── API Versioning ───────────────────────────────────────────────────────────
 // Endpoint paths don't carry a version on their own — wrap them with `apiPath`
@@ -71,4 +73,9 @@ export const tokenStore = {
         }
         return hydrationPromise;
     },
+    getDeviceToken: async () => {
+        const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+        const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId });
+        return token;
+    }
 };

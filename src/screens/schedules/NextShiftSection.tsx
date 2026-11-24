@@ -6,7 +6,7 @@ import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
 import type { ActiveScheduleResponse, Schedule } from '../../lib/api/schedule';
-import { CurrentShiftCard } from './CurrentShiftCard';
+import { NextShiftCard } from './NextShiftCard';
 
 function getGreeting(): string {
   const hour = new Date().getHours();
@@ -15,7 +15,7 @@ function getGreeting(): string {
   return 'Good evening';
 }
 
-export interface CurrentScheduleSectionProps {
+export interface NextShiftSectionProps {
   firstName: string;
   todayLabel: string;
   isLoading: boolean;
@@ -24,17 +24,15 @@ export interface CurrentScheduleSectionProps {
   active?: ActiveScheduleResponse;
   dueShift?: Schedule;
   isStarting: boolean;
-  isEnding: boolean;
-  onStartDueShift: () => void;
-  onEndActiveShift: () => void;
   onStartNewShift: () => void;
+  onPressShift: () => void;
 }
 
-// The homepage greeting + "Current Schedule" card, extracted out of
-// MyShiftsPanel for readability — purely presentational, all the data
-// fetching/mutations it needs stay owned by MyShiftsPanel and are just
-// passed down as props.
-export function CurrentScheduleSection({
+// Alternate "Current Shift" design (glanceable date/time + progress bar,
+// "See details" instead of inline Start/End Shift controls — those now live
+// on the schedule-detail screen) — a sibling of CurrentScheduleSection, not
+// a replacement of it; MyShiftsPanel picks which one to render.
+export function NextShiftSection({
   firstName,
   todayLabel,
   isLoading,
@@ -43,11 +41,9 @@ export function CurrentScheduleSection({
   active,
   dueShift,
   isStarting,
-  isEnding,
-  onStartDueShift,
-  onEndActiveShift,
   onStartNewShift,
-}: CurrentScheduleSectionProps) {
+  onPressShift,
+}: NextShiftSectionProps) {
   return (
     <>
       <View style={styles.headerRow}>
@@ -59,33 +55,26 @@ export function CurrentScheduleSection({
         </View>
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Current Shift</Text>
-        {isLoading ? (
-          <ActivityIndicator color={Colors.primary} style={styles.loading} />
-        ) : errorMessage ? (
-          <Text style={styles.errorText}>{errorMessage}</Text>
-        ) : isActiveOngoing && active ? (
-          <CurrentShiftCard mode="in-progress" active={active} onEnd={onEndActiveShift} isEnding={isEnding} />
-        ) : dueShift ? (
-          <CurrentShiftCard mode="starting-soon" shift={dueShift} onStart={onStartDueShift} isStarting={isStarting} />
-        ) : (
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyText}>No shift assigned right now.</Text>
-            {/* "Open shift" — no assigned schedule at all, so let the
-                employee start ad-hoc work instead of just showing an
-                empty state. Distinct from "Start Shift" above, which
-                checks in to an already-assigned schedule. */}
-            <Button
-              label="Start New Shift"
-              icon={<MaterialIcons name="add-circle-outline" size={18} color={Colors.onPrimary} />}
-              onPress={onStartNewShift}
-              loading={isStarting}
-              style={styles.startNewShiftButton}
-            />
-          </View>
-        )}
-      </View>
+      {isLoading ? (
+        <ActivityIndicator color={Colors.primary} style={styles.loading} />
+      ) : errorMessage ? (
+        <Text style={styles.errorText}>{errorMessage}</Text>
+      ) : isActiveOngoing && active ? (
+        <NextShiftCard mode="in-progress" active={active} onPressCard={onPressShift} onPressDetails={onPressShift} />
+      ) : dueShift ? (
+        <NextShiftCard mode="starting-soon" shift={dueShift} onPressCard={onPressShift} onPressDetails={onPressShift} />
+      ) : (
+        <View style={styles.emptyCard}>
+          <Text style={styles.emptyText}>No shift assigned right now.</Text>
+          <Button
+            label="Start New Shift"
+            icon={<MaterialIcons name="add-circle-outline" size={18} color={Colors.onPrimary} />}
+            onPress={onStartNewShift}
+            loading={isStarting}
+            style={styles.startNewShiftButton}
+          />
+        </View>
+      )}
     </>
   );
 }
@@ -108,15 +97,6 @@ const styles = StyleSheet.create({
   subtitle: {
     ...Typography.bodyMd,
     color: Colors.onSurfaceVariant,
-  },
-  section: {
-    gap: Spacing.gutter,
-  },
-  sectionTitle: {
-    ...Typography.headlineLgMobile,
-    fontSize: 22,
-    lineHeight: 28,
-    color: Colors.onSurface,
   },
   loading: {
     marginTop: Spacing.sectionGap,

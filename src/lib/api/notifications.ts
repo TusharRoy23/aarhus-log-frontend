@@ -27,8 +27,7 @@ export interface Notification {
     created_at: string;
 }
 
-const NOTIFICATION_API_URL = "/notifications/"
-const NOTIFICATION_CONSUMER = "ws/notifications/"
+const NOTIFICATION_API_URL = "/notifications/";
 
 export const notificationApi = {
     registerDeviceToken: async (token: string): Promise<DeviceToken> => {

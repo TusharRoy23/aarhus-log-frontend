@@ -31,6 +31,8 @@ export type Schedule = {
     start_method: StartMethod;
     start_time: string;
     end_time: string;
+    log_start_time?: string | null;
+    log_end_time?: string | null;
     break_time: string;
     status: ShiftStatus;
     created_at: string;
@@ -141,7 +143,17 @@ export type ScheduleHistoryParams = {
 };
 
 export type AttendanceStatus = "incomplete" | "completed" | "in_progress";
-export type ScheduleStatus = "pending" | "confirmed" | "declined"
+export enum ScheduleStatus {
+    DRAFT = "draft",
+    OPEN = "open",
+    PUBLISHED = "published",
+    PENDING = "pending",
+    IN_PROGRESS = "in_progress",
+    CONFIRMED = "confirmed",
+    DECLINED = "declined",
+    COMPLETED = "completed",
+    GIVEAWAY = "giveaway",
+}
 
 export type ScheduleHistory = {
     uuid: string;

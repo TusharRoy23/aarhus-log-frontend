@@ -18,6 +18,8 @@ import { Resources } from '../../lib/api/permission';
 import { tokenStore } from '../../lib/api/utils';
 import queryClient from '../../lib/query-client';
 import { disconnectNotificationsSocket } from '../../lib/notifications-socket';
+import { useMutation } from '@tanstack/react-query';
+import { authApi } from '../../lib/api/auth';
 
 const WIDE_BREAKPOINT = 768;
 
@@ -134,6 +136,22 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
     },
   ];
 
+  const signOutMutation = useMutation({
+    mutationFn: async () => {
+      const refresh = tokenStore.getRefreshToken();
+      const deviceToken = await tokenStore.getDeviceToken();
+      if (!refresh || !deviceToken) return Promise.resolve({ message: 'No refresh token or device token found' });
+      return await authApi.logout({ refresh, device_token: deviceToken });
+    },
+    onSuccess: () => {
+      handleSignOut();
+    },
+    onError: (error) => {
+      console.error('Logout failed:', error);
+      handleSignOut();
+    },
+  });
+
   const handleSignOut = () => {
     setMenuOpen(false);
     setProfileOpen(false);
@@ -142,17 +160,7 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
     dispatch(clearPermissions());
     dispatch(resetAssistant());
     disconnectNotificationsSocket(dispatch);
-    // The TanStack Query cache is a singleton independent of Redux — it
-    // isn't cleared just because auth/permissions are. Without this, a
-    // different user logging in right after would see the previous
-    // session's still-"fresh" cached data (schedules, employees,
-    // designations, ...) until each query's staleTime happened to expire.
     queryClient.clear();
-    // No `router.replace('/')` here — `_layout.tsx`'s `useProtectedRoute`
-    // already reacts to `isAuthenticated` flipping false (from
-    // `clearAuth()` above) and redirects itself. Calling it here too raced
-    // with that reactive redirect, same double-navigation bug fixed in
-    // base_api.ts's 401 handler.
   };
 
   const handleSwitchWorkspace = () => notImplemented('Switch Workspace');
@@ -175,7 +183,7 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
             organizationName={organization?.name}
             onSwitchWorkspace={handleSwitchWorkspace}
             onNotImplemented={notImplemented}
-            onSignOut={handleSignOut}
+            onSignOut={() => signOutMutation.mutate()}
           />
         ) : null}
 
@@ -206,7 +214,7 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
         </View>
         <DrawerLink icon="account-circle" label="My Profile" onPress={() => notImplemented('My Profile')} />
         <DrawerLink icon="settings" label="Account Settings" onPress={() => notImplemented('Account Settings')} />
-        <DrawerLink icon="logout" label="Logout" onPress={handleSignOut} />
+        <DrawerLink icon="logout" label="Logout" onPress={() => signOutMutation.mutate()} />
       </SideDrawer>
     </SafeAreaView>
   );

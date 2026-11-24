@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { FullWindowOverlay } from 'react-native-screens';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -23,16 +23,21 @@ const VARIANT_STYLES: Record<ToastVariant, { background: string; text: string; i
 // response interceptor, which already dispatches into the store directly
 // for the 401 case) can trigger it the same way.
 //
-// Uses `FullWindowOverlay` (react-native-screens), not RN's own `Modal`.
-// A plain `<Modal>` here can't present above a screen that's itself
-// pushed with `presentation: 'modal'` (Create Shift, Employee/Designation
-// forms) — on iOS that's a genuine native `UIViewController` modal
-// presentation, and iOS only allows one view controller to be the
-// topmost presented one at a time, so a second, separately-mounted
-// `<Modal>` silently fails to show above it. `FullWindowOverlay` renders
-// in its own native window above everything, including other native
-// modal presentations, specifically to solve this. On web/Android it
-// falls back to a plain `View` (the stacking issue is iOS-specific).
+// Uses `FullWindowOverlay` (react-native-screens) on iOS, not RN's own
+// `Modal`. A plain `<Modal>` here can't present above a screen that's
+// itself pushed with `presentation: 'modal'` (Create Shift,
+// Employee/Designation forms) — on iOS that's a genuine native
+// `UIViewController` modal presentation, and iOS only allows one view
+// controller to be the topmost presented one at a time, so a second,
+// separately-mounted `<Modal>` silently fails to show above it.
+// `FullWindowOverlay` renders in its own native window above everything,
+// including other native modal presentations, specifically to solve this.
+// The stacking issue is iOS-specific, and `FullWindowOverlay` itself only
+// does anything on iOS (it `console.warn`s and falls back to a plain
+// `View` everywhere else) — so render the plain `View` directly on
+// Android/web instead of going through it, to skip that warning.
+const OverlayContainer = Platform.OS === 'ios' ? FullWindowOverlay : View;
+
 export function Toast() {
   const dispatch = useAppDispatch();
   const { visible, message, variant, id } = useAppSelector((state) => state.toast);
@@ -63,7 +68,7 @@ export function Toast() {
   const style = VARIANT_STYLES[variant];
 
   return (
-    <FullWindowOverlay>
+    <OverlayContainer style={Platform.OS === 'ios' ? undefined : StyleSheet.absoluteFill}>
       <SafeAreaProvider>
         <View style={styles.overlay} pointerEvents="box-none">
           <SafeAreaView edges={['bottom']} style={styles.safeArea} pointerEvents="box-none">
@@ -79,7 +84,7 @@ export function Toast() {
           </SafeAreaView>
         </View>
       </SafeAreaProvider>
-    </FullWindowOverlay>
+    </OverlayContainer>
   );
 }
 

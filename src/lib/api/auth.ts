@@ -74,7 +74,8 @@ export const authApi = {
         const response = await baseApi.post<LoginResponse>(apiPath('/user/login/'), payload);
         return response.data;
     },
-    logout: async (): Promise<void> => {
-        await baseApi.post(apiPath('/user/logout/'));
+    logout: async ({ refresh, device_token }: { refresh: string, device_token: string }): Promise<{ message: string }> => {
+        const response = await baseApi.post<{ message: string }>(apiPath('/user/logout/'), { refresh, device_token });
+        return response.data;
     },
 };

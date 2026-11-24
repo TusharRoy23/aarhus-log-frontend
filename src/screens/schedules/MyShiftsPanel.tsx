@@ -1,14 +1,14 @@
 import { useMemo, useState } from 'react';
-import { Platform, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { QrScannerModal } from '../../components/ui';
 import { Colors } from '../../theme/colors';
 import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { useAppSelector } from '../../store/hooks';
-import { scheduleApi, ScheduleTimeScope, ScheduleTypes, type StartSchedulePayload, type StopSchedulePayload } from '../../lib/api/schedule';
+import { scheduleApi, ScheduleStatus, ScheduleTimeScope, ScheduleTypes, type StartSchedulePayload } from '../../lib/api/schedule';
 import { getApiErrorMessage } from '../../lib/api/base_api';
-import { CurrentScheduleSection } from './CurrentScheduleSection';
+import { NextShiftSection } from './NextShiftSection';
 import { MyScheduleSection } from './MyScheduleSection';
 
 // The "Shifts" tab's content — owns its own data fetching. HomeScreen only
@@ -19,6 +19,7 @@ import { MyScheduleSection } from './MyScheduleSection';
 // Shifts-tab content, not page-wide chrome — they don't show on the other
 // tabs (People on the Floor, Draft Shifts, ...).
 export function MyShiftsPanel() {
+  const router = useRouter();
   const user = useAppSelector((state) => state.auth.user);
   const currentUserEmail = user?.email;
   const firstName = user?.name?.split(' ')[0] || user?.username || 'there';
@@ -71,7 +72,7 @@ export function MyShiftsPanel() {
     if (isActiveOngoing || !upcomingShift) return undefined;
     const now = Date.now();
     const end = new Date(upcomingShift.end_time).getTime();
-    if (end > now && upcomingShift.status === 'pending') {
+    if (end > now && upcomingShift.status === ScheduleStatus.CONFIRMED) {
       return upcomingShift;
     }
     return undefined;
@@ -89,35 +90,6 @@ export function MyShiftsPanel() {
     // deliberately excludes (see query-client.ts). Opt in just for this one.
     meta: { toastOnStatuses: [400] },
   });
-  const stopMutation = useMutation({
-    mutationFn: (payload: StopSchedulePayload) => scheduleApi.stop(payload),
-    onSuccess: (data) => {
-      queryClient.setQueryData(['active-schedule'], data);
-      // Same reasoning as startMutation's onSuccess above.
-      queryClient.invalidateQueries({ queryKey: ['schedules'] });
-    },
-    // Same reasoning as startMutation above — no inline error spot on this
-    // button, so a rejected qr_token needs the global toast even on a 400.
-    meta: { toastOnStatuses: [400] },
-  });
-
-  const [scannerPurpose, setScannerPurpose] = useState<'start' | 'stop' | null>(null);
-  const handleStartDueShift = () => {
-    if (!dueShift) return;
-    if (dueShift.start_method === 'qr' && Platform.OS !== 'web') {
-      setScannerPurpose('start');
-    } else {
-      startMutation.mutate({ schedule_uuid: dueShift.uuid });
-    }
-  };
-  const handleEndActiveShift = () => {
-    if (active?.started_via === 'qr' && Platform.OS !== 'web') {
-      setScannerPurpose('stop');
-    } else {
-      stopMutation.mutate({});
-    }
-  };
-
   // Follows whichever From/To range + Upcoming/Previous scope is currently
   // selected in AllSchedulesSection's own controls (reported up via
   // `onFiltersChange`, fired once on its mount with the defaults
@@ -156,7 +128,7 @@ export function MyShiftsPanel() {
 
   return (
     <>
-      <CurrentScheduleSection
+      <NextShiftSection
         firstName={firstName}
         todayLabel={todayLabel}
         isLoading={isUpcomingPending || activeQuery.isPending}
@@ -169,10 +141,13 @@ export function MyShiftsPanel() {
         active={active}
         dueShift={dueShift}
         isStarting={startMutation.isPending}
-        isEnding={stopMutation.isPending}
-        onStartDueShift={handleStartDueShift}
-        onEndActiveShift={handleEndActiveShift}
         onStartNewShift={() => startMutation.mutate({})}
+        onPressShift={() => {
+          const scheduleUuid = isActiveOngoing ? active?.schedule?.uuid : dueShift?.uuid;
+          if (scheduleUuid) {
+            router.push({ pathname: '/schedule-detail', params: { schedule_uuid: scheduleUuid } });
+          }
+        }}
       />
 
       <View style={styles.section}>
@@ -184,20 +159,6 @@ export function MyShiftsPanel() {
           onFiltersChange={setMyFilters}
         />
       </View>
-
-      <QrScannerModal
-        visible={scannerPurpose !== null}
-        onClose={() => setScannerPurpose(null)}
-        onScanned={(token) => {
-          const purpose = scannerPurpose;
-          setScannerPurpose(null);
-          if (purpose === 'start' && dueShift) {
-            startMutation.mutate({ schedule_uuid: dueShift.uuid, qr_token: token });
-          } else if (purpose === 'stop') {
-            stopMutation.mutate({ qr_token: token });
-          }
-        }}
-      />
     </>
   );
 }
