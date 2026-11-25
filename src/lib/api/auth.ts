@@ -1,4 +1,4 @@
-import baseApi from './base_api';
+import baseApi, { publicApi } from './base_api';
 import { apiPath } from './utils';
 
 export type RegisterPayload = {
@@ -59,19 +59,19 @@ export type LoginResponse = {
 
 export const authApi = {
     register: async (payload: RegisterPayload): Promise<RegisterResponse> => {
-        const response = await baseApi.post<RegisterResponse>(apiPath('/user/signup/'), payload)
+        const response = await publicApi.post<RegisterResponse>(apiPath('/user/signup/'), payload)
         return response.data;
     },
     verifyOtp: async (payload: VerifyOtpPayload): Promise<VerifyOtpResponse> => {
-        const response = await baseApi.post<VerifyOtpResponse>(apiPath('/user/verify-otp/'), payload);
+        const response = await publicApi.post<VerifyOtpResponse>(apiPath('/user/verify-otp/'), payload);
         return response.data;
     },
     loginLookup: async (payload: LoginLookupPayload): Promise<LoginLookupResponse> => {
-        const response = await baseApi.post<LoginLookupResponse>(apiPath('/user/login-lookup/'), payload);
+        const response = await publicApi.post<LoginLookupResponse>(apiPath('/user/login-lookup/'), payload);
         return response.data;
     },
     login: async (payload: LoginPayload): Promise<LoginResponse> => {
-        const response = await baseApi.post<LoginResponse>(apiPath('/user/login/'), payload);
+        const response = await publicApi.post<LoginResponse>(apiPath('/user/login/'), payload);
         return response.data;
     },
     logout: async ({ refresh, device_token }: { refresh: string, device_token: string }): Promise<{ message: string }> => {

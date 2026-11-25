@@ -8,6 +8,23 @@ import { resetAssistant } from '../../store/slices/assistant-slice';
 import queryClient from '../query-client';
 import { disconnectNotificationsSocket } from '../notifications-socket';
 
+// ─── Response Unwrapping ──────────────────────────────────────────────────────
+// Shared between both instances below — the backend always wraps a response
+// as { data, meta, status, message }; this flattens that one level so
+// callers can just read response.data directly.
+function unwrapResponse(response: any) {
+    if (__DEV__) {
+        console.log(`[API] ${response.status} ${response.config.url}`, response.data);
+    }
+    return {
+        ...response,
+        data: response.data.data,
+        meta: response.data?.meta || {},
+        status: response.data?.status,
+        message: response.data?.message,
+    };
+}
+
 // ─── Axios Instance ───────────────────────────────────────────────────────────
 const baseApi = axios.create({
     baseURL: process.env.EXPO_PUBLIC_API_URL,
@@ -23,16 +40,14 @@ baseApi.interceptors.request.use(
         let token = tokenStore.get();
 
         if (token && !isTokenValid(token)) {
-            // Refresh failed? Fall back to the old token as-is — if it's
-            // truly dead the request 401s and the response interceptor
-            // below clears the session; a network blip shouldn't force
-            // that just because this proactive check failed too.
             token = (await refreshAccessToken()) ?? token;
         }
 
-        if (token) {
-            config.headers.Authorization = `Bearer ${token}`;
+        if (!token) {
+            return Promise.reject(Object.assign(new Error('No access token.'), { config, status: 401 }));
         }
+
+        config.headers.Authorization = `Bearer ${token}`;
 
         if (__DEV__) {
             console.log(`[API] ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`, config.data ?? '');
@@ -45,18 +60,7 @@ baseApi.interceptors.request.use(
 
 // ─── Response Interceptor ─────────────────────────────────────────────────────
 baseApi.interceptors.response.use(
-    (response) => {
-        if (__DEV__) {
-            console.log(`[API] ${response.status} ${response.config.url}`, response.data);
-        }
-        return {
-            ...response,
-            data: response.data.data,
-            meta: response.data?.meta || {},
-            status: response.data?.status,
-            message: response.data?.message
-        };
-    },
+    unwrapResponse,
     (error: AxiosError) => {
         if (__DEV__) {
             console.warn(`[API] Error ${error.response?.status} ${error.config?.url}`, error.response?.data);
@@ -78,10 +82,29 @@ baseApi.interceptors.response.use(
     },
 );
 
+// ─── Public (pre-auth) Axios Instance ─────────────────────────────────────────
+export const publicApi = axios.create({
+    baseURL: process.env.EXPO_PUBLIC_API_URL,
+    headers: {
+        'Content-Type': 'application/json',
+    },
+});
+
+publicApi.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+    if (__DEV__) {
+        console.log(`[API] ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`, config.data ?? '');
+    }
+    return config;
+});
+
+publicApi.interceptors.response.use(unwrapResponse, (error: AxiosError) => {
+    if (__DEV__) {
+        console.warn(`[API] Error ${error.response?.status} ${error.config?.url}`, error.response?.data);
+    }
+    return Promise.reject(Object.assign({}, error.response?.data, { status: error.response?.status }));
+});
+
 // ─── Error Helper ──────────────────────────────────────────────────────────────
-// The response interceptor above rejects with `error.response?.data` (the raw
-// API error body), not an Axios/Error instance, so callers need this instead
-// of reading `.message` off a caught error directly.
 
 export function getApiErrorMessage(error: unknown, fallback = 'Something went wrong. Please try again.'): string {
     if (error && typeof error === 'object' && 'message' in error && typeof (error as { message?: unknown }).message === 'string') {
