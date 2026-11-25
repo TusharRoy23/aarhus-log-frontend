@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
-import { useInfiniteQuery, useMutation } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { MaterialIcons } from '@expo/vector-icons';
 import { AppShell } from '../../components/layout/AppShell';
 import { Colors } from '../../theme/colors';
@@ -8,6 +8,7 @@ import { Typography } from '../../theme/typography';
 import { Spacing } from '../../theme/spacing';
 import { Radius } from '../../theme/radius';
 import { Notification, notificationApi } from '../../lib/api/notifications';
+import type { PaginatedResponse } from '../../constants/types';
 import { getApiErrorMessage } from '../../lib/api/base_api';
 import { notificationIcon, formatNotificationTimestamp } from './activity-format';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
@@ -42,6 +43,7 @@ function ActivityRow({ notification }: { notification: Notification }) {
 
 export function ActivitiesScreen() {
   const dispatch = useAppDispatch();
+  const queryClient = useQueryClient();
   const unreadCount = useAppSelector((state) => state.notifications.unreadCount);
 
   const {
@@ -61,7 +63,26 @@ export function ActivitiesScreen() {
 
   const markAllReadMutation = useMutation({
     mutationFn: notificationApi.markAllUnreadAsRead,
-    onSuccess: () => dispatch(clearUnreadCount()),
+    onSuccess: () => {
+      dispatch(clearUnreadCount());
+
+      // Mirror the server-side mark-all-read locally instead of refetching —
+      // stamp read_at on everything that was unread when this fired, so the
+      // unread styling clears immediately without a round trip.
+      const readAt = new Date().toISOString();
+      queryClient.setQueryData<InfiniteData<PaginatedResponse<Notification>>>(['notifications'], (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          pages: old.pages.map((page) => ({
+            ...page,
+            results: page.results.map((notification) =>
+              notification.read_at ? notification : { ...notification, read_at: readAt },
+            ),
+          })),
+        };
+      });
+    },
   });
 
   // Fires once the list has actually rendered (first page settled), not

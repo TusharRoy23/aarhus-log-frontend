@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -95,15 +96,15 @@ export function PermissionsMatrixScreen({ subtitle, queryKey, enabled, fetchMatr
         queryClient.setQueryData<PermissionMatrixResponse>(queryKey, (old) =>
           old
             ? {
-                ...old,
-                results: old.results.map((model) => ({
-                  ...model,
-                  actions: model.actions.map((action) => ({
-                    ...action,
-                    is_selected: selectedCodes.has(action.code),
-                  })),
+              ...old,
+              results: old.results.map((model) => ({
+                ...model,
+                actions: model.actions.map((action) => ({
+                  ...action,
+                  is_selected: selectedCodes.has(action.code),
                 })),
-              }
+              })),
+            }
             : old,
         );
       }
@@ -111,9 +112,16 @@ export function PermissionsMatrixScreen({ subtitle, queryKey, enabled, fetchMatr
     },
   });
 
+  // Once the matrix loads there's always a Save button to show — long
+  // permission lists shouldn't require scrolling all the way down just to
+  // save a single toggle, so it floats in a footer bar instead of sitting
+  // inline at the end of the card. `scrollContent`'s bottom padding reserves
+  // room so the last section never sits underneath it.
+  const showFooter = !isPending && selectedCodes !== null && !isError;
+
   return (
-    <AppShell hideBottomNav>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+    <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
         <Pressable style={styles.backRow} onPress={() => router.back()} hitSlop={8}>
           <MaterialIcons name="arrow-back" size={20} color={Colors.onSurfaceVariant} />
           <Text style={styles.backLabel}>Back</Text>
@@ -132,52 +140,70 @@ export function PermissionsMatrixScreen({ subtitle, queryKey, enabled, fetchMatr
           ) : isError ? (
             <Text style={styles.errorText}>{getApiErrorMessage(error, 'Failed to load permissions.')}</Text>
           ) : (
-            <>
-              <View style={styles.matrix}>
-                {matrix.map((model) => (
-                  <View key={model.model} style={styles.section}>
-                    <Text style={styles.sectionTitle}>{modelLabel(model.model)}</Text>
-                    <View style={styles.actionRow}>
-                      {model.actions.map((action) => (
-                        <Pressable
-                          key={action.code}
-                          style={styles.actionItem}
-                          onPress={() => toggleCode(action.code)}
-                        >
-                          <Checkbox checked={selectedCodes.has(action.code)} onChange={() => toggleCode(action.code)} />
-                          <Text style={styles.actionLabel}>{actionLabel(action.name)}</Text>
-                        </Pressable>
-                      ))}
-                    </View>
+            <View style={styles.matrix}>
+              {matrix.map((model) => (
+                <View key={model.model} style={styles.section}>
+                  <Text style={styles.sectionTitle}>{modelLabel(model.model)}</Text>
+                  <View style={styles.actionRow}>
+                    {model.actions.map((action) => (
+                      <Pressable
+                        key={action.code}
+                        style={styles.actionItem}
+                        onPress={() => toggleCode(action.code)}
+                      >
+                        <Checkbox checked={selectedCodes.has(action.code)} onChange={() => toggleCode(action.code)} />
+                        <Text style={styles.actionLabel}>{actionLabel(action.name)}</Text>
+                      </Pressable>
+                    ))}
                   </View>
-                ))}
-              </View>
-
-              {updateMutation.isError ? (
-                <Text style={styles.errorText}>{getApiErrorMessage(updateMutation.error, 'Failed to save permissions.')}</Text>
-              ) : null}
-
-              <Button
-                label="Save Changes"
-                icon={<MaterialIcons name="save" size={18} color={Colors.onPrimary} />}
-                loading={updateMutation.isPending}
-                onPress={() => updateMutation.mutate()}
-              />
-            </>
+                </View>
+              ))}
+            </View>
           )}
         </View>
       </ScrollView>
-    </AppShell>
+
+      {showFooter ? (
+        <View style={styles.footer}>
+          {updateMutation.isError ? (
+            <Text style={styles.errorText}>{getApiErrorMessage(updateMutation.error, 'Failed to save permissions.')}</Text>
+          ) : null}
+
+          <Button
+            label="Save Changes"
+            icon={<MaterialIcons name="save" size={18} color={Colors.onPrimary} />}
+            loading={updateMutation.isPending}
+            onPress={() => updateMutation.mutate()}
+          />
+        </View>
+      ) : null}
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+  },
+  scrollView: {
+    flex: 1,
+  },
   scrollContent: {
     padding: Spacing.containerPaddingMobile,
     gap: Spacing.gutter,
     maxWidth: 640,
     width: '100%',
     alignSelf: 'center',
+  },
+  footer: {
+    padding: Spacing.containerPaddingMobile,
+    gap: Spacing.unit * 3,
+    maxWidth: 640,
+    width: '100%',
+    alignSelf: 'center',
+    backgroundColor: Colors.surfaceContainerLowest,
+    borderTopWidth: 1,
+    borderTopColor: Colors.outlineVariant,
   },
   backRow: {
     flexDirection: 'row',

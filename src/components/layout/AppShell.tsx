@@ -18,8 +18,10 @@ import { Resources } from '../../lib/api/permission';
 import { tokenStore } from '../../lib/api/utils';
 import queryClient from '../../lib/query-client';
 import { disconnectNotificationsSocket } from '../../lib/notifications-socket';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { authApi } from '../../lib/api/auth';
+import { notificationApi } from '../../lib/api/notifications';
+import { setUnreadCount } from '../../store/slices/notifications-slice';
 
 const WIDE_BREAKPOINT = 768;
 
@@ -64,6 +66,15 @@ export function AppShell({ children, hideBottomNav }: AppShellProps) {
   const [profileOpen, setProfileOpen] = useState(false);
 
   const userName = user?.name || user?.username || 'Account';
+
+  const { data } = useQuery({
+    queryKey: ['unreadNotificationCount'],
+    queryFn: async () => {
+      const response = await notificationApi.unreadNotificationCount();
+      dispatch(setUnreadCount(response.count));
+      return response.count;
+    }
+  })
 
   // `router.push` always pushes a new screen instance onto the stack, even
   // if you're already on that exact route — tapping a Menu link for the
